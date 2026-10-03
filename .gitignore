@@ -1,6 +1,8 @@
-node_modules
+node_modules/
 .env
-.env.local
-dist
+.env.*
+!.env.example
+dist/
 *.log
 .DS_Store
+.neon
