@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "readyfor-coordinator-agent"
+version = "0.1.0"
+description = "Fetch.ai coordinator chat agent for the ReadyFor demo"
+requires-python = ">=3.11"
+dependencies = [
+  "python-dotenv>=1.0,<2",
+  "uagents>=0.22,<1",
+  "httpx>=0.27,<1",
+]
+
+[project.scripts]
+readyfor-agent = "readyfor_agent.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
