@@ -6,9 +6,11 @@
     <meta name="theme-color" content="#f6f7f4" />
     <title>ReadyFor | Surgery readiness</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/auth.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <section id="auth-root" aria-live="polite"><p>Checking staff access…</p></section>
+    <div class="app-shell" hidden>
       <aside class="sidebar">
         <a class="brand" href="#" aria-label="ReadyFor home">
           <span class="brand-mark">R</span><span>readyfor</span>
@@ -20,12 +22,13 @@
         </nav>
         <div class="sidebar-bottom">
           <div class="demo-label"><span class="pulse"></span> <span id="service-status">CONNECTING</span></div>
-          <div class="user-card"><div class="avatar">JD</div><div><strong>Jordan Davis</strong><small>Care coordinator</small></div><span class="more">···</span></div>
+          <div class="user-card"><div class="avatar">JD</div><div><strong>Jordan Davis</strong><small>Care coordinator</small></div></div>
+          <button id="staff-signout" class="staff-signout" hidden>Sign out</button>
         </div>
       </aside>
 
       <main class="main-content">
-        <header class="topbar"><div class="breadcrumbs">Care coordination <span>/</span> Surgeries</div><div class="top-actions"><span class="today" id="today"></span><button class="icon-button" aria-label="Notifications">♧<i></i></button></div></header>
+        <header class="topbar"><div class="breadcrumbs">Care coordination <span>/</span> Surgeries</div><div class="top-actions"><span class="today" id="today"></span><button id="invite-staff" class="primary-button invite-staff" hidden>Invite staff</button></div></header>
         <section class="page-heading">
           <div><div class="eyebrow" id="page-date"></div><h1>Good morning, Jordan <span>✳</span></h1><p>Here’s what needs your attention today.</p></div>
           <button class="primary-button" id="reset-demo">↻ Reset demo</button>

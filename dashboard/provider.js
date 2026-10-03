@@ -111,10 +111,14 @@ function mapDetail(detail) {
   };
 }
 
-function createCoreProvider(baseUrl) {
+function createCoreProvider(baseUrl, config = {}) {
   const base = baseUrl || DEFAULT_API_URL;
-  const json = (path, method = 'GET', body) => requestJson(base, path, {
-    method,
+  const authHeaders = async () => {
+    const token = await config.getAccessToken?.();
+    return token ? { authorization: `Bearer ${token}` } : {};
+  };
+  const json = async (path, method = 'GET', body) => requestJson(base, path, {
+    method, headers: await authHeaders(),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const listSurgeries = async () => {
@@ -138,12 +142,12 @@ function createCoreProvider(baseUrl) {
     },
     async createTask(surgeryId, title, owner, detail) {
       return json('/tasks', 'POST', {
-        surgeryId, title, owner, detail, actor: 'coordinator:Jordan', origin: 'staff',
+        surgeryId, title, owner, detail, actor: config.actor ?? 'staff', origin: 'staff',
       });
     },
     async completeTask(taskId) {
       return json(`/tasks/${encodeURIComponent(taskId)}/actions`, 'POST', {
-        action: 'complete', actor: 'coordinator:Jordan',
+        action: 'complete', actor: config.actor ?? 'staff',
       });
     },
     async sendPatientMessage(surgeryId, body, attachment) {
@@ -154,7 +158,12 @@ function createCoreProvider(baseUrl) {
     },
     resetDemo: () => json('/demo/reset', 'POST'),
     health: () => json('/health'),
-    documentUrl: (documentId) => `${base}/documents/${encodeURIComponent(documentId)}/content`,
+    documentUrl: () => null,
+    async documentBlob(documentId) {
+      const response = await fetch(`${base}/documents/${encodeURIComponent(documentId)}/content`, { headers: await authHeaders() });
+      if (!response.ok) throw new Error('Could not load the evidence document.');
+      return response.blob();
+    },
   };
 }
 
@@ -237,5 +246,5 @@ function createMockProvider() {
 export function createDashboardProvider(config = {}) {
   return config.provider === 'mock'
     ? createMockProvider()
-    : createCoreProvider(config.apiBaseUrl);
+    : createCoreProvider(config.apiBaseUrl, config);
 }

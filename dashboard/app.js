@@ -1,12 +1,17 @@
 import { createDashboardProvider } from './provider.js';
+import { initStaffAccess, getAccessToken } from './auth.js';
 
 const config = window.READYFOR_CONFIG ?? { provider: 'core', apiBaseUrl: 'http://localhost:8787' };
-const provider = createDashboardProvider(config);
+const staff = await initStaffAccess();
+const actor = `${staff.membership.role}:${staff.user.name}`;
+const provider = createDashboardProvider({ ...config, actor, getAccessToken });
+const clinicalReviewer = staff.demo || ['admin', 'nurse', 'surgeon'].includes(staff.membership.role);
 const labels = { 'at-risk': 'At risk', attention: 'Needs attention', ready: 'Ready' };
 let surgeries = [];
 let selectedId = null;
 let selectedDetail = null;
 let toastTimer;
+let documentUrls = [];
 
 const list = document.querySelector('#surgery-list');
 const panel = document.querySelector('#detail-panel');
@@ -58,9 +63,10 @@ function requirementMarkup(requirement) {
   } else if (resolved && requirement.status !== 'satisfied') {
     actions = `<button class="text-action" data-action="reopen" data-id="${escapeHtml(requirement.id)}">Reopen</button>`;
   }
+  if (!clinicalReviewer && requirement.kind !== 'logistics') actions = '<small>Clinical staff review required</small>';
 
   const source = requirement.source?.detail ? `<p class="source-detail"><strong>Source:</strong> ${escapeHtml(requirement.source.detail)}</p>` : '';
-  const evidence = requirement.evidence ? `<div class="evidence-box"><strong>${escapeHtml(requirement.evidence.summary)}</strong>${requirement.evidence.checks?.length ? `<ul>${requirement.evidence.checks.map((check) => `<li class="${check.ok ? 'check-ok' : 'check-fail'}">${check.ok ? '✓' : '!'} ${escapeHtml(check.label)} · ${escapeHtml(check.detail)}</li>`).join('')}</ul>` : ''}${requirement.evidence.documentId && provider.documentUrl(requirement.evidence.documentId) ? `<img class="lab-preview" alt="Synthetic lab report evidence" src="${escapeHtml(provider.documentUrl(requirement.evidence.documentId))}" />` : ''}</div>` : '';
+  const evidence = requirement.evidence ? `<div class="evidence-box"><strong>${escapeHtml(requirement.evidence.summary)}</strong>${requirement.evidence.checks?.length ? `<ul>${requirement.evidence.checks.map((check) => `<li class="${check.ok ? 'check-ok' : 'check-fail'}">${check.ok ? '✓' : '!'} ${escapeHtml(check.label)} · ${escapeHtml(check.detail)}</li>`).join('')}</ul>` : ''}${requirement.evidence.documentId && provider.documentBlob ? `<img class="lab-preview" alt="Synthetic lab report evidence" data-document-id="${escapeHtml(requirement.evidence.documentId)}" hidden />` : ''}</div>` : '';
   const proposal = requirement.proposal ? `<p class="template-copy"><strong>Staff-approved template · ${escapeHtml(requirement.proposal.drugClass)}</strong><br>${escapeHtml(requirement.proposal.text)}</p>` : '';
   return `<article class="blocker-item ${resolved ? 'cleared' : ''}"><div class="blocker-head"><span class="blocker-symbol">${icon}</span><div class="blocker-copy"><strong>${escapeHtml(requirement.title)}</strong><p>${escapeHtml(requirement.reason)}</p></div><span class="blocker-state ${resolved ? 'state-cleared' : ''}">${escapeHtml(requirement.status.replaceAll('_', ' '))}</span></div><div class="owner-row"><span class="owner-dot">${initials(owner)}</span> Owner: ${owner}${requirement.blocking ? ' · blocking' : ''}</div>${source}${proposal}${evidence}<div class="action-row">${actions}</div></article>`;
 }
@@ -72,6 +78,8 @@ function renderTasks(detail) {
 }
 
 function renderDetail() {
+  documentUrls.forEach((url) => URL.revokeObjectURL(url));
+  documentUrls = [];
   const detail = selectedDetail ?? surgeries.find((item) => item.id === selectedId);
   if (!detail) { panel.innerHTML = '<div class="empty-state">Select a surgery to see details.</div>'; return; }
   const open = detail.readiness === undefined ? openBlockers(detail) : (detail.requirements?.filter(isOpenRequirement).length ?? openBlockers(detail));
@@ -88,6 +96,16 @@ function renderDetail() {
 
   panel.querySelector('#check-record')?.addEventListener('click', () => runCheck(detail.id));
   panel.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', () => resolveRequirement(button.dataset.id, button.dataset.action)));
+  panel.querySelectorAll('[data-document-id]').forEach(async (preview) => {
+    try {
+      const blob = await provider.documentBlob(preview.dataset.documentId);
+      if (!preview.isConnected) return;
+      const url = URL.createObjectURL(blob);
+      documentUrls.push(url);
+      preview.src = url;
+      preview.hidden = false;
+    } catch (error) { if (preview.isConnected) notify(error.message); }
+  });
   panel.querySelectorAll('[data-task-complete]').forEach((button) => button.addEventListener('click', () => completeTask(button.dataset.taskComplete)));
   panel.querySelector('#task-form')?.addEventListener('submit', createTask);
   panel.querySelector('#patient-message-form')?.addEventListener('submit', sendPatientMessage);
@@ -155,7 +173,7 @@ async function resolveRequirement(requirementId, actionKey) {
     if (!note?.trim()) return;
   }
   try {
-    await provider.resolveRequirement(requirementId, action, 'coordinator:Jordan', note?.trim());
+    await provider.resolveRequirement(requirementId, action, actor, note?.trim());
     await refreshAfterMutation(action === 'approve_template' ? 'Staff-approved template queued for the patient.' : `Requirement ${action.replace('_', ' ')} recorded.`);
   } catch (error) { notify(error.message); }
 }

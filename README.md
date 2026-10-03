@@ -17,10 +17,35 @@ The core listens on `http://localhost:8787`. It runs with in-memory storage and 
 In a second terminal, run the dashboard:
 
 ```sh
+cd dashboard
+bun install --frozen-lockfile
+cd ..
 bun run dashboard
 ```
 
-Open [http://localhost:4173](http://localhost:4173). The dashboard uses the live core by default (`GET /surgeries`, `GET /surgeries/:id`, and the documented action routes). To deliberately view its local-only demo fixture instead, run `DASHBOARD_PROVIDER=mock bun run dashboard`. The mock mode does not change the core or Neon.
+Open [http://localhost:4173](http://localhost:4173). This staff-onboarding branch shows a configuration screen until Neon Auth and core authorization are connected. To view the local synthetic dashboard while that integration is pending, run `DASHBOARD_PROVIDER=mock bun run dashboard`. Mock mode is explicit, limited to localhost outside production, and does not change the core or Neon.
+
+## Staff signup integration status
+
+This branch prepares invitation signup, email-code verification, sign-in, password recovery, pending access, a short staff introduction, and administrator-generated invitation links. Patients continue through iMessage. Invitations are links for an administrator to share; the dashboard does not send invitation emails.
+
+The managed Neon SDK is pinned in `dashboard/package.json`. Provider requests use the same-origin `/auth/provider/` gateway; core requests use `/api/` with a short-lived bearer JWT. The client does not persist JWTs in browser storage. Evidence images are fetched with authorization and displayed through temporary blob URLs. The gateway checks request origins, restricts routes, bounds bodies, and limits account writes per client address.
+
+**Not yet connected:** the shared core contract, membership/invitation tables, server-side JWT/role checks, initial admin bootstrap, and Neon Auth provisioning. The required API and validation checklist are in [dashboard/auth-contract.md](dashboard/auth-contract.md). The existing core still has no authentication; this dashboard preparation does not secure its direct port. Keep the core local and use synthetic data until server authorization is implemented.
+
+Once the core extension is implemented, configure these locally without posting credentials in chat:
+
+| Variable | Purpose |
+| --- | --- |
+| `NEON_AUTH_BASE_URL` | Managed Auth URL for the selected Neon branch |
+| `NEON_AUTH_COOKIE_SECRET` | Random local secret of at least 32 characters for the official SDK's session cache |
+| `DASHBOARD_ORIGIN` | Exact browser origin, defaults to `http://localhost:4173` |
+| `READYFOR_CORE_URL` | Core upstream, defaults to `http://localhost:8787` |
+| `STAFF_AUTH_ENABLED=1` | Explicit activation after core authorization is ready |
+
+The dashboard also requires the core health response to advertise the implemented auth contract. A configured Neon provider alone cannot activate staff mode against the inherited unauthenticated core. The first administrator email is still to be selected; never grant admin to the first arbitrary signup. Configure the exact dashboard origin in Neon Auth's trusted origins. Managed verification and password-recovery emails require provider setup; live delivery has not been tested.
+
+Validate this branch with `bun test`, `bun run typecheck`, `bun run --cwd dashboard typecheck`, and `bun run seed:check`. Gateway rate limiting is per process; a deployment with multiple dashboard instances needs a shared limiter or ingress rate limits.
 
 Use **Reset demo** to reload the synthetic surgeries, then open Harriet’s surgery and select **Run record check**. Reset clears all current demo records in the configured database before reloading the fixture; with a `DATABASE_URL`, use this only on the demo database. The record check creates the readiness requirements from FinchNode/RxClass or their offline fixtures.
 
