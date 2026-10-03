@@ -6,6 +6,7 @@
   "scripts": {
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
+    "dashboard": "bun run dashboard/server.ts",
     "seed:check": "bun db/seed/check.ts"
   },
   "dependencies": {

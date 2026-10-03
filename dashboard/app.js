@@ -4,7 +4,7 @@ const provider = createDashboardProvider(window.READYFOR_CONFIG?.provider);
 let surgeries = [];
 
 const labels = { 'at-risk': 'At risk', attention: 'Needs attention', ready: 'Ready' };
-let selectedId = surgeries[0].id;
+let selectedId = null;
 const list = document.querySelector('#surgery-list');
 const panel = document.querySelector('#detail-panel');
 const toast = document.querySelector('#toast');
