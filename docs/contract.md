@@ -32,16 +32,17 @@ It runs with an empty `.env`:
 | `GEMINI_API_KEY` | Keyword-based fake model; no real AI |
 | `RECORD_FIXTURES` | Live FinchNode and RxClass calls (set to `1` for offline fixtures) |
 | `DEMO_PATIENT_PHONE` | Harriet has no phone, so iMessage cannot reach her; the simulated channel still works |
+| `NEON_AUTH_BASE_URL` | Auth is off: every caller is trusted and `actor` comes from the request body. Local use only |
 
-`GET /health` reports which of these modes is active.
+`GET /health` reports which of these modes is active. Set `AUTH_REQUIRED=1` anywhere the core is reachable by others; it then refuses to start with auth off.
 
 ## 3. Conventions
 
-- Base URL `http://localhost:8787`. JSON in and out. CORS is open to any origin.
-- No authentication. Hackathon build, synthetic data only.
+- Base URL `http://localhost:8787`. JSON in and out. With auth off, CORS is open to any origin; with auth on, only `CORS_ORIGINS` (default `http://localhost:4173`).
+- Authentication is described in section 9. Synthetic data only.
 - Timestamps are ISO 8601 UTC strings. Dates are `YYYY-MM-DD`.
 - Ids are opaque strings with a prefix: `pat_`, `sur_`, `req_`, `tsk_`, `msg_`, `doc_`, `evt_`.
-- `actor` is a free label for who did something: `"coordinator:Dana"`, `"nurse:Priya"`, `"agent"`, `"patient"`.
+- `actor` is a label for who did something: `"coordinator:Dana"`, `"nurse:Priya"`, `"nurse:Priya via ASI:One"`, `"patient"`. With auth on the core derives it from the caller and ignores any `actor` in the body.
 - Errors use one envelope and a matching HTTP status:
 
 ```json
@@ -51,6 +52,8 @@ It runs with an empty `.env`:
 | Status | `code` values |
 | --- | --- |
 | 400 | `bad_request`, `note_required` |
+| 401 | `unauthorized` (no credential, or an invalid or expired one) |
+| 403 | `forbidden` (valid credential without permission, or a Neon account not on the staff list) |
 | 404 | `not_found`, `unknown_sender` |
 | 409 | `invalid_transition` |
 | 502 | `upstream_failed` (FinchNode unreachable and no fixture) |
@@ -358,3 +361,47 @@ The coordinator flow in ASI:One needs four calls:
 4. `POST /requirements/:id/actions` to verify, once the coordinator confirms in chat.
 
 The core must be reachable from wherever the agent runs. Locally that means a tunnel to port 8787.
+
+## 9. Authentication (Neon Auth)
+
+Auth is on when the core has `NEON_AUTH_BASE_URL`. Every route except `GET /health` then needs `Authorization: Bearer <token>`. There are three kinds of caller.
+
+**Staff** sign in through Neon Auth (Managed Better Auth) in the dashboard, using `@neondatabase/auth`. The dashboard gets a JWT with `authClient.token()` (it expires after 15 minutes, so fetch a fresh one before each call or on a 401) and sends it as the bearer token. The core verifies it against the branch JWKS (EdDSA; issuer and audience are the Auth URL's origin). A valid Neon account grants nothing on its own: the account must match an entry in `STAFF_ALLOWLIST`, by user id (`id:<sub>`) or by email once the email is verified. The entry gives the person's role and display name. Roles: `coordinator`, `nurse`, `surgeon`, `admin`.
+
+**The iMessage adapter** sends `IMESSAGE_SERVICE_TOKEN`.
+
+**The Fetch.ai agent** sends `AGENT_SERVICE_TOKEN` and, on every call, `X-ReadyFor-Sender: <ASI:One sender address>`. The agent acts only for a sender linked to a staff entry (the fourth field of the entry), with that person's role. An unlinked sender gets 403 on every route, reads included, because anyone can message the agent.
+
+| Permission | coordinator | nurse / surgeon | admin | iMessage adapter | agent (linked sender) |
+| --- | --- | --- | --- | --- | --- |
+| Read surgeries, briefs, documents | yes | yes | yes | no | yes |
+| `POST /surgeries/:id/check` | yes | yes | yes | no | no |
+| Requirement actions on `logistics` and `instruction` | yes | yes | yes | no | as the linked person |
+| Requirement actions on `lab`, `medication`, `health` | **no** | yes | yes | no | as the linked person |
+| `POST /tasks`, `POST /tasks/:id/actions` | yes | yes | yes | no | as the linked person |
+| `POST /messages/inbound` with `simulated` or `asione` | yes | yes | yes | no | no |
+| `POST /messages/inbound` with `imessage` | no | no | no | yes | no |
+| `GET /outbox`, `POST /outbox/:id/sent` | no | no | yes | yes | no |
+| `POST /demo/reset` | no | no | yes | no | no |
+
+### GET /me
+
+Who the core thinks the caller is. Use it after sign-in to show the name and role, and to hide buttons the role cannot use.
+
+```json
+{ "identity": { "kind": "staff", "role": "nurse", "name": "Priya", "userId": "860dc360-..." }, "actor": "nurse:Priya", "auth": "neon" }
+```
+
+With auth off: `{ "identity": { "kind": "open" }, "actor": null, "auth": "off" }`.
+
+### Notes for the dashboard
+
+- `GET /documents/:id/content` needs the bearer token too, so an `<img src>` cannot load it directly. Fetch it with the header and show it through `URL.createObjectURL`.
+- On 401, refresh the token once and retry; if it fails again, show the sign-in screen. On 403, show the message from the error envelope.
+- Stop sending `actor`; the core ignores it when auth is on.
+- Register the dashboard's deployed origin as a Neon Auth trusted domain (`neon neon-auth domain add <origin>`) and add it to `CORS_ORIGINS`.
+
+### Notes for the agent
+
+- Send `Authorization: Bearer $AGENT_SERVICE_TOKEN` and `X-ReadyFor-Sender: <sender>` on every request, using the ASI:One sender of the chat message being handled.
+- A 403 means the sender is not linked, or their role cannot do that action. Tell them so; do not retry.

@@ -124,7 +124,7 @@ async function actOn(id: string, action: string, extra: Record<string, unknown> 
 describe("reads", () => {
   test("GET /health", async () => {
     const r = await get("/health");
-    expect(r.json).toEqual({ ok: true, time: NOW.toISOString(), llm: "fake", database: "memory", records: "fixtures" });
+    expect(r.json).toEqual({ ok: true, time: NOW.toISOString(), llm: "fake", database: "memory", records: "fixtures", auth: "off" });
   });
 
   test("GET /surgeries lists the seeded surgeries soonest first with readiness", async () => {

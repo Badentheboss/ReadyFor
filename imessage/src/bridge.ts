@@ -26,6 +26,8 @@ export interface BridgeOptions {
   coreUrl: string;
   clinic: { name: string; phone: string };
   fetch?: typeof fetch;
+  /** IMESSAGE_SERVICE_TOKEN, sent as a bearer token when the core has auth on. */
+  serviceToken?: string;
   log?: (line: string) => void;
   /** Outbox poll interval. Default 3000. */
   pollMs?: number;
@@ -34,7 +36,10 @@ export interface BridgeOptions {
 type OutboxMessage = Message & { phone: string | null };
 
 export function createBridge(opts: BridgeOptions) {
-  const doFetch = opts.fetch ?? fetch;
+  const rawFetch = opts.fetch ?? fetch;
+  const authHeader: Record<string, string> = opts.serviceToken ? { authorization: `Bearer ${opts.serviceToken}` } : {};
+  const doFetch = (url: string, init: RequestInit = {}) =>
+    rawFetch(url, { ...init, headers: { ...authHeader, ...(init.headers as Record<string, string> | undefined) } });
   const log = opts.log ?? ((line: string) => console.log(line));
   const base = opts.coreUrl.replace(/\/+$/, "");
   const pollMs = opts.pollMs ?? 3000;

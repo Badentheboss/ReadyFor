@@ -55,9 +55,11 @@ export async function applyRequirementAction(
   now: Date,
   requirementId: string,
   body: Body,
+  /** The authenticated actor. When set it replaces any `actor` in the body. */
+  verifiedActor?: string | null,
 ): Promise<RequirementActionResult> {
   const action = requireOneOf(body, "action", REQUIREMENT_ACTIONS);
-  const actor = requireString(body, "actor");
+  const actor = verifiedActor ?? requireString(body, "actor");
   const note = optionalString(body, "note")?.trim() || null;
 
   const requirement = await store.getRequirement(requirementId);
@@ -160,14 +162,14 @@ function fillTemplate(text: string, note: string | null): string {
   return text.split(PLACEHOLDER).join("").replace(/ {2,}/g, " ").trim();
 }
 
-export async function createTaskFromBody(store: Store, body: Body): Promise<Task> {
+export async function createTaskFromBody(store: Store, body: Body, verifiedActor?: string | null): Promise<Task> {
   const surgeryId = requireString(body, "surgeryId");
   const title = requireString(body, "title").trim();
   const owner = requireOneOf(body, "owner", OWNERS);
   const detail = optionalString(body, "detail");
   const requirementId = optionalString(body, "requirementId");
   const origin: TaskOrigin = optionalOneOf(body, "origin", ["staff", "agent"] as const) ?? "staff";
-  const actor = optionalString(body, "actor")?.trim() || origin;
+  const actor = verifiedActor ?? (optionalString(body, "actor")?.trim() || origin);
 
   const surgery = await requireSurgery(store, surgeryId);
   if (requirementId) {
@@ -187,9 +189,15 @@ export async function createTaskFromBody(store: Store, body: Body): Promise<Task
   return task;
 }
 
-export async function applyTaskAction(store: Store, now: Date, taskId: string, body: Body): Promise<Task> {
+export async function applyTaskAction(
+  store: Store,
+  now: Date,
+  taskId: string,
+  body: Body,
+  verifiedActor?: string | null,
+): Promise<Task> {
   const action = requireOneOf(body, "action", TASK_ACTIONS);
-  const actor = requireString(body, "actor");
+  const actor = verifiedActor ?? requireString(body, "actor");
   const owner: Owner | undefined = action === "reassign" ? requireOneOf(body, "owner", OWNERS) : undefined;
 
   const task = await store.getTask(taskId);

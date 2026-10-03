@@ -1,5 +1,6 @@
 /** ReadyFor core service. Wires the store, record check, conversation handler and HTTP app. */
 import seedJson from "../../db/seed/demo.json" with { type: "json" };
+import { authConfigFromEnv } from "./auth/auth.ts";
 import { createFixtureClassifier, createFixtureSource } from "./clinical/fixtures/fixtures.ts";
 import { createFinchNodeSource } from "./clinical/finchnode.ts";
 import { createRecordCheck } from "./clinical/recordCheck.ts";
@@ -41,6 +42,14 @@ if (database === "memory" || (await store.listSurgeries()).length === 0) {
   await store.reset(seed, clock.now());
 }
 
+// Auth is on when NEON_AUTH_BASE_URL is set. With auth on, CORS defaults to the local dashboard only.
+const auth = authConfigFromEnv(env);
+const corsOrigins = env.CORS_ORIGINS?.trim()
+  ? env.CORS_ORIGINS.split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean)
+  : auth
+    ? ["http://localhost:4173"]
+    : undefined;
+
 const deps: AppDeps = {
   store,
   clock,
@@ -49,8 +58,11 @@ const deps: AppDeps = {
   handleInbound: createInboundHandler({ store, llm, clock, clinic }),
   seed: () => seed,
   info: { llm: llm.name, database, records: useFixtures ? "fixtures" : "live" },
+  auth,
+  corsOrigins,
 };
 
 const port = Number(env.CORE_PORT || 8787);
 Bun.serve({ port, fetch: createApp(deps).fetch, maxRequestBodySize: 32 * 1024 * 1024 });
-console.log(`ReadyFor core on http://localhost:${port}  (llm: ${llm.name}, database: ${database}, records: ${deps.info.records})`);
+console.log(`ReadyFor core on http://localhost:${port}  (llm: ${llm.name}, database: ${database}, records: ${deps.info.records}, auth: ${auth ? "neon" : "off"})`);
+if (!auth) console.warn("Auth is off: anyone who can reach this port can read and change demo data. Set NEON_AUTH_BASE_URL to turn it on.");
