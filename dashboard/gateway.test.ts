@@ -104,3 +104,31 @@ describe('dashboard auth boundary', () => {
     }))).status).toBe(502);
   });
 });
+
+test('HTTP loopback cookie translation retains sessions without changing HTTPS or remote cookies', async () => {
+  const providerCookie = '__Secure-neon-auth.session_token=synthetic-session; Path=/; HttpOnly; Secure; SameSite=Lax; Domain=auth.example.invalid';
+  for (const [origin, enabled, translated] of [
+    ['http://localhost:4173', true, true],
+    ['https://localhost:4173', true, false],
+    ['http://example.invalid', true, false],
+    ['http://localhost:4173', false, false],
+  ] as const) {
+    let incoming = '';
+    const gateway = createGateway({ ...config, origin, localHttpCookies: enabled }, fakeFetch, async ({ request }) => {
+      incoming = request.headers.get('cookie') ?? '';
+      return Response.json({ success: true }, { headers: { 'set-cookie': providerCookie } });
+    });
+    const response = await gateway(new Request(`${origin}/auth/provider/get-session`, {
+      headers: { cookie: translated ? '__Secure-neon-auth.session_token=stale-session; readyfor-dev-4173-neon-auth.session_token=synthetic-session' : '__Secure-neon-auth.session_token=synthetic-session' },
+    }));
+    expect(incoming).toBe('__Secure-neon-auth.session_token=synthetic-session');
+    const cookie = response.headers.getSetCookie()[0]!;
+    expect(cookie.includes('HttpOnly')).toBe(true);
+    expect(cookie.includes('SameSite=Lax')).toBe(true);
+    if (translated) {
+      expect(cookie.startsWith('readyfor-dev-4173-neon-auth.session_token=')).toBe(true);
+      expect(cookie).not.toMatch(/;\s*Secure(?:;|$)/i);
+      expect(cookie).not.toContain('Domain=');
+    } else expect(cookie).toBe(providerCookie);
+  }
+});

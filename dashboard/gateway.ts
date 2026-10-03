@@ -6,6 +6,8 @@ export interface GatewayConfig {
   authUrl?: string;
   cookieSecret?: string;
   enabled: boolean;
+  /** HTTP loopback development only; production keeps Neon Secure cookies. */
+  localHttpCookies?: boolean;
 }
 export type FetchTransport = (input: string | URL | Request, options?: RequestInit) => Promise<Response>;
 
@@ -52,9 +54,22 @@ async function boundedBody(request: Request, limit: number) {
   return body;
 }
 
+function localCookiesForNeon(value: string, prefix: string): string {
+  const cookies = value.split(';').map((cookie) => cookie.trim());
+  const localNames = new Set(cookies.filter((cookie) => cookie.startsWith(prefix))
+    .map((cookie) => '__Secure-neon-auth.' + cookie.slice(prefix.length, cookie.indexOf('='))));
+  // A previous Chrome session may have both names. The current local session wins.
+  return cookies.filter((cookie) => !localNames.has(cookie.slice(0, cookie.indexOf('='))))
+    .map((cookie) => cookie.startsWith(prefix) ? '__Secure-neon-auth.' + cookie.slice(prefix.length) : cookie).join('; ');
+}
+
 // Only the configured providers and these routes can be reached through this gateway.
 export function createGateway(config: GatewayConfig, coreFetch: FetchTransport = fetch,
   providerProxy: typeof handleAuthProxyRequest = handleAuthProxyRequest) {
+  const origin = new URL(config.origin);
+  const localHttpCookies = config.localHttpCookies === true && origin.protocol === 'http:'
+    && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);
+  const localCookiePrefix = `readyfor-dev-${origin.port || '80'}-neon-auth.`;
   const limits = new Map<string, { until: number; count: number }>();
   return async (request: Request, clientAddress = 'unknown'): Promise<Response> => {
     const url = new URL(request.url);
@@ -106,12 +121,25 @@ export function createGateway(config: GatewayConfig, coreFetch: FetchTransport =
         const headers = new Headers();
         for (const name of ['cookie', 'content-type', 'accept']) {
           const value = request.headers.get(name);
-          if (value) headers.set(name, value);
+          if (value) headers.set(name, name === 'cookie' && localHttpCookies
+            ? localCookiesForNeon(value, localCookiePrefix) : value);
         }
         headers.set('origin', config.origin);
         const sanitized = new Request(request.url, { method: request.method, headers, body });
-        return await providerProxy({ request: sanitized, path, baseUrl: config.authUrl.replace(/\/$/, ''),
+        const response = await providerProxy({ request: sanitized, path, baseUrl: config.authUrl.replace(/\/$/, ''),
           cookieSecret: config.cookieSecret, sameSite: 'lax', sessionDataTtl: 60 });
+        if (!localHttpCookies) return response;
+        // WebKit rejects Secure cookies on HTTP localhost. Keep HttpOnly/SameSite,
+        // translating only Neon's names across the loopback development boundary.
+        const responseHeaders = new Headers(response.headers);
+        responseHeaders.delete('set-cookie');
+        for (const cookie of response.headers.getSetCookie()) {
+          responseHeaders.append('set-cookie', cookie.startsWith('__Secure-neon-auth.')
+            ? (localCookiePrefix + cookie.slice('__Secure-neon-auth.'.length))
+              .replace(/;\s*Secure(?=;|$)/gi, '').replace(/;\s*Domain=[^;]*/gi, '')
+            : cookie);
+        }
+        return new Response(response.body, { status: response.status, headers: responseHeaders });
       }
       const target = new URL(config.coreUrl);
       target.pathname = path;

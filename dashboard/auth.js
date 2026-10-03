@@ -1,4 +1,5 @@
 import { createAuthClient } from '@neondatabase/auth';
+import { requestStaffToken } from './session-token.js';
 
 const config = window.READYFOR_CONFIG ?? {};
 const root = document.querySelector('#auth-root');
@@ -16,14 +17,15 @@ const escape = (value = '') => String(value).replace(/[&<>"']/g, (character) => 
 })[character]);
 const roleLabel = (role) => ({ admin: 'Clinic administrator', coordinator: 'Care coordinator', nurse: 'Nurse', surgeon: 'Surgeon' })[role] ?? role;
 
-export async function getAccessToken(refresh = false) {
+export async function getAccessToken() {
   if (config.demoMode) return null;
   if (!client || authenticationNeeded) throw new Error('Sign in to continue.');
   try {
-    const { data, error } = await client.token(refresh ? { fetchOptions: { headers: { 'X-Force-Fetch': '1' } } } : undefined);
-    if (error || !data?.token) throw new Error('Your session has expired. Sign in again to continue.');
-    return data.token;
-  } catch (error) { requireSignIn(); throw error; }
+    return await requestStaffToken(client);
+  } catch (error) {
+    if (error.status === 401 || error.code === 'session_not_found') requireSignIn();
+    throw error;
+  }
 }
 
 export function requireSignIn() {

@@ -34,3 +34,26 @@ test('pinned Neon SDK account methods pass through the gateway route allowlist',
       .rejects.toMatchObject({ code: 'email_not_confirmed' });
   } finally { server.stop(true); }
 });
+
+test('JWT retrieval bypasses the SDK session cache after successful sign-in', async () => {
+  const { requestStaffToken } = await import('./session-token.js');
+  const paths: string[] = [];
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    paths.push(path);
+    if (path.endsWith('/token')) return Response.json({ token: 'synthetic-jwt' });
+    return Response.json({ session: { id: 'session-regression', token: 'opaque-session',
+      expiresAt: new Date(Date.now() + 60_000).toISOString() },
+      user: { id: 'user-regression', email: 'staff@example.invalid', emailVerified: true } });
+  } });
+  const client = createAuthClient(`${server.url.origin}/auth/provider`);
+  try {
+    await client.signIn.email({ email: 'staff@example.invalid', password: 'synthetic-test-only' });
+    // Reproduces the installed SDK bug: /token returns cached {session,user}.
+    expect((await client.token()).data).not.toHaveProperty('token');
+    paths.length = 0;
+    expect(await requestStaffToken(client)).toBe('synthetic-jwt');
+    expect(await requestStaffToken(client)).toBe('synthetic-jwt');
+    expect(paths).toEqual(['/auth/provider/token', '/auth/provider/token']);
+  } finally { server.stop(true); }
+});

@@ -13,7 +13,7 @@ const providerConfigured = Boolean(authUrl) && Boolean(cookieSecret && cookieSec
 const authConfigured = providerConfigured && await coreSupportsStaffAuth(coreUrl);
 if (authUrl && new URL(authUrl).protocol !== 'https:') throw new Error('Neon Auth requires an HTTPS upstream URL.');
 const gateway = createGateway({ origin, enabled: authConfigured, authUrl, cookieSecret,
-  coreUrl });
+  coreUrl, localHttpCookies: localOrigin && new URL(origin).protocol === 'http:' && Bun.env.NODE_ENV !== 'production' });
 
 const bundle = await Bun.build({ entrypoints: [`${root}/auth.js`], target: 'browser', minify: true });
 if (!bundle.success || !bundle.outputs[0]) throw new Error('Could not build the staff sign-in client.');
