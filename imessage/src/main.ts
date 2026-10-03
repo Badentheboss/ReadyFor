@@ -20,6 +20,7 @@ const bridge = createBridge({
   transport: createSpectrumTransport({ projectId: env.PROJECT_ID!.trim(), projectSecret: env.PROJECT_SECRET!.trim() }),
   coreUrl,
   clinic,
+  serviceToken: env.IMESSAGE_SERVICE_TOKEN?.trim() || undefined,
   log: (line) => console.log(`${new Date().toISOString()} ${line}`),
 });
 

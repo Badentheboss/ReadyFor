@@ -6,6 +6,8 @@
  * with docs/contract.md.
  */
 
+import type { AuthConfig } from "./auth/auth.ts";
+
 // ---------------------------------------------------------------------------
 // Domain
 // ---------------------------------------------------------------------------
@@ -578,4 +580,8 @@ export interface AppDeps {
   clinic: ClinicInfo;
   /** For GET /health. */
   info: { llm: string; database: "neon" | "memory"; records: "live" | "fixtures" };
+  /** Neon Auth and service tokens. Absent or null: auth is off and every caller is trusted. */
+  auth?: AuthConfig | null;
+  /** Browser origins allowed by CORS. Absent: any origin (only sensible with auth off). */
+  corsOrigins?: string[];
 }

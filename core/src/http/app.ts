@@ -1,6 +1,15 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import {
+  actorFor,
+  authenticate,
+  AuthError,
+  isClinicalKind,
+  requirePermission,
+  type Identity,
+  type Permission,
+} from "../auth/auth.ts";
 import { NotFoundError } from "../store/errors.ts";
 import type { AppDeps, InboundAttachment, InboundInput } from "../types.ts";
 import { UnknownSenderError } from "../types.ts";
@@ -42,11 +51,14 @@ function parseInbound(body: Body): InboundInput {
   return input;
 }
 
-export function createApp(deps: AppDeps): Hono {
-  const { store, clock } = deps;
-  const app = new Hono();
+type Env = { Variables: { identity: Identity } };
 
-  app.use("*", cors());
+export function createApp(deps: AppDeps): Hono<Env> {
+  const { store, clock } = deps;
+  const app = new Hono<Env>();
+  const auth = deps.auth ?? null;
+
+  app.use("*", deps.corsOrigins ? cors({ origin: deps.corsOrigins }) : cors());
   app.use(
     "*",
     bodyLimit({
@@ -62,21 +74,48 @@ export function createApp(deps: AppDeps): Hono {
       llm: deps.info.llm,
       database: deps.info.database,
       records: deps.info.records,
+      auth: auth ? "neon" : "off",
     }),
   );
 
+  // Everything below /health needs a caller. With auth off every caller is trusted ("open").
+  app.use("*", async (c, next) => {
+    const identity: Identity = auth
+      ? await authenticate(auth, {
+          authorization: c.req.header("authorization"),
+          sender: c.req.header("x-readyfor-sender"),
+        })
+      : { kind: "open" };
+    c.set("identity", identity);
+    await next();
+  });
+
+  const can = (c: { get: (key: "identity") => Identity }, permission: Permission): string | null => {
+    const identity = c.get("identity");
+    requirePermission(identity, permission);
+    return actorFor(identity);
+  };
+
+  app.get("/me", (c) => {
+    const identity = c.get("identity");
+    return c.json({ identity, actor: actorFor(identity), auth: auth ? "neon" : "off" });
+  });
+
   app.get("/surgeries", async (c) => {
+    can(c, "read");
     const now = clock.now();
     const surgeries = await store.listSurgeries();
     return c.json({ surgeries: await Promise.all(surgeries.map((s) => buildSummary(store, s, now))) });
   });
 
   app.get("/surgeries/:id", async (c) => {
+    can(c, "read");
     const surgery = await requireSurgery(store, c.req.param("id"));
     return c.json(await buildDetail(store, surgery, clock.now()));
   });
 
   app.get("/surgeries/:id/brief", async (c) => {
+    can(c, "read");
     const surgery = await requireSurgery(store, c.req.param("id"));
     const detail = await buildDetail(store, surgery, clock.now());
     return c.json({
@@ -85,6 +124,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.post("/surgeries/:id/check", async (c) => {
+    can(c, "record_check");
     const surgery = await requireSurgery(store, c.req.param("id"));
     const result = await deps.runRecordCheck(surgery.id);
     const fresh = await requireSurgery(store, surgery.id);
@@ -92,22 +132,30 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.post("/requirements/:id/actions", async (c) => {
+    const actor = can(c, "requirement_action");
+    // Lab, medication and health decisions need a clinical role. Unknown ids fall through to the 404.
+    const requirement = await store.getRequirement(c.req.param("id"));
+    if (requirement && isClinicalKind(requirement.kind)) can(c, "clinical_requirement_action");
     const body = await readJsonObject(c);
-    return c.json(await applyRequirementAction(store, clock.now(), c.req.param("id"), body));
+    return c.json(await applyRequirementAction(store, clock.now(), c.req.param("id"), body, actor));
   });
 
   app.post("/tasks", async (c) => {
+    const actor = can(c, "task_write");
     const body = await readJsonObject(c);
-    return c.json({ task: await createTaskFromBody(store, body) }, 201);
+    return c.json({ task: await createTaskFromBody(store, body, actor) }, 201);
   });
 
   app.post("/tasks/:id/actions", async (c) => {
+    const actor = can(c, "task_write");
     const body = await readJsonObject(c);
-    return c.json({ task: await applyTaskAction(store, clock.now(), c.req.param("id"), body) });
+    return c.json({ task: await applyTaskAction(store, clock.now(), c.req.param("id"), body, actor) });
   });
 
   app.post("/messages/inbound", async (c) => {
     const input = parseInbound(await readJsonObject(c));
+    // Only the adapter may speak for iMessage; staff can only simulate the patient.
+    can(c, input.channel === "imessage" ? "inbound_imessage" : "inbound_simulated");
     try {
       return c.json(await deps.handleInbound(input));
     } catch (err) {
@@ -117,6 +165,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.get("/outbox", async (c) => {
+    can(c, "outbox");
     const channel = c.req.query("channel") ?? "imessage";
     if (!(CHANNELS as readonly string[]).includes(channel)) {
       throw badRequest(`"channel" must be one of: ${CHANNELS.join(", ")}`);
@@ -130,6 +179,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.post("/outbox/:id/sent", async (c) => {
+    can(c, "outbox");
     const id = c.req.param("id");
     const message = await store.getMessage(id);
     if (!message) throw notFound("message", id);
@@ -138,6 +188,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.get("/documents/:id/content", async (c) => {
+    can(c, "read");
     const id = c.req.param("id");
     const content = await store.getDocumentContent(id);
     if (!content) throw notFound("document", id);
@@ -146,6 +197,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.post("/demo/reset", async (c) => {
+    can(c, "demo_reset");
     const seed = deps.seed();
     await store.reset(seed, clock.now());
     return c.json({ ok: true, surgeries: seed.surgeries.length });
@@ -154,6 +206,9 @@ export function createApp(deps: AppDeps): Hono {
   app.notFound((c) => c.json({ error: { code: "not_found", message: `No route for ${c.req.method} ${c.req.path}` } }, 404));
 
   app.onError((err, c) => {
+    if (err instanceof AuthError) {
+      return c.json({ error: { code: err.status === 401 ? "unauthorized" : "forbidden", message: err.message } }, err.status);
+    }
     if (err instanceof HttpError) {
       return c.json({ error: { code: err.code, message: err.message } }, err.status);
     }
