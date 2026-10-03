@@ -1,7 +1,7 @@
-# Synthetic demo fixtures
+# Demo seed files
 
-`fixtures.json` is the source for the dashboard's initial mock scenario. It contains invented patients and must not be loaded into a shared database until it has been mapped to `db/schema.sql` from the contract checkpoint.
+- `demo.json` is the core-owned source fixture. The core loads it on start when storage is empty and reloads it through the documented `POST /demo/reset` route.
+- `fixtures.json` is a separate Codex-owned fallback for the dashboard's `DASHBOARD_PROVIDER=mock` mode. It does not write to the core or Neon.
+- `assets/sample-lab-report.svg` and `.png` are synthetic lab report examples for the demo. The marked report is not real patient data.
 
-Medication wording is deliberately a placeholder. Add only staff-approved text; the agent must never author medication instructions.
-
-Run `bun run seed:check` to validate JSON structure, IDs, dates, and the medication-template placeholder. This is a local preflight only: it does not connect to Neon or execute SQL. A database loader should be added only after `docs/contract.md` and `db/schema.sql` define the agreed tables and fields.
+`bun run seed:check` validates only the fallback dashboard fixture and medication placeholder. It does not connect to or change a database. The core's reset route clears and reseeds its configured database, so use it only with the hackathon demo database.

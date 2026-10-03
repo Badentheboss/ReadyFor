@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 class Settings:
     seed: str
     name: str
-    host: str
     port: int
     core_url: str | None
     core_timeout_seconds: float
@@ -39,7 +38,6 @@ def load_settings() -> Settings:
     return Settings(
         seed=seed,
         name=os.getenv("UAGENT_NAME", "readyfor-coordinator").strip(),
-        host=os.getenv("UAGENT_HOST", "127.0.0.1").strip(),
         port=port,
         core_url=core_url,
         core_timeout_seconds=timeout,

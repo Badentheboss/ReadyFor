@@ -81,4 +81,4 @@ if (errors.length) {
 }
 
 console.log(`Fixture check passed: ${surgeries.length} surgeries, ${requirements.length} requirement templates, ${medications.length} medication templates.`);
-console.log("No database was changed. Loading is intentionally disabled until db/schema.sql and the contract are available.");
+console.log("No database was changed. The core-owned demo seed is db/seed/demo.json and is loaded only by the documented /demo/reset route.");

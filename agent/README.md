@@ -1,10 +1,10 @@
 # ReadyFor Fetch.ai coordinator agent
 
-This is the Fetch.ai/uAgents entry point for coordinator chat. It uses Fetch.ai's published Chat Protocol so Agentverse/ASI:One clients can discover and message it. It is deliberately fail-closed: until the ReadyFor core contract is present, it acknowledges a message and says the service is not connected. It does not infer medical instructions, provide medication advice, or use an LLM to make clinical decisions.
+This uAgents service uses Fetch.ai’s Chat Protocol for ASI:One coordinator requests and calls the ReadyFor routes in `docs/contract.md`. It can report surgeries at risk within seven days, return a patient’s brief, and stage task creation or requirement verification. The agent asks for a `CONFIRM` before it writes a task or marks a requirement verified; `CANCEL` discards the pending action. Core readiness rules remain the source of truth.
 
 ## Run locally
 
-Requires Python 3.11 or newer.
+Requires Python 3.11 or newer:
 
 ```sh
 cd agent
@@ -14,18 +14,19 @@ python -m pip install -e .
 cp .env.example .env
 ```
 
-Set `UAGENT_SEED` in `agent/.env` to a private, stable seed phrase. Never commit it or paste it into chat. To use the Agentverse mailbox, enable the mailbox for the agent in Agentverse and follow its generated connection instructions. The Agentverse token is not embedded in source. Optional values and their defaults are documented in `.env.example`.
-
-Start the local agent:
+Set a private, stable `UAGENT_SEED` in `agent/.env`. `READYFOR_CORE_URL` defaults to `http://localhost:8787`, where the core runs after `bun start`. Never commit or paste the seed or account credentials.
 
 ```sh
 python -m readyfor_agent
 ```
 
-By default it listens on `127.0.0.1:8000`. It prints its agent address and inspector link at startup. The address can be used to test the agent locally; a reachable deployment is required for remote Agentverse messaging.
+The agent connects through the Agentverse mailbox, so it can receive ASI:One messages without exposing the agent’s local port. On first run, open the Inspector URL printed in the terminal and connect the local agent to a mailbox in Agentverse. The core URL must still be reachable from the agent process; set it to the deployed core URL when the core is on a different machine.
 
-## Core integration status
+## Supported chat actions
 
-`client.py` is the only place intended to make ReadyFor core HTTP requests. It intentionally defines no routes or payloads. Set `READYFOR_CORE_URL` after the core contract is available, then implement the coordinator operations there from `docs/contract.md`. Until that work is done, requests raise `CoreClientNotConfigured` (or the corresponding explicit unavailable error); the chat handler returns a safe unavailable message.
+- “What is at risk this week?” reads `GET /surgeries` and lists at-risk surgeries up to seven days away.
+- “What is blocking Harriet’s surgery?” reads `GET /surgeries/:id/brief`.
+- “Assign a task for Harriet to call her clinic to the nurse” stages `POST /tasks` and waits for `CONFIRM`.
+- “Verify pre-op blood work for Harriet” looks up the requirement, states its current status, and waits for `CONFIRM` before calling `POST /requirements/:id/actions` with `verify`.
 
-When integrating the contract, preserve the boundary: validate chat text and map supported coordinator actions to documented core routes, pass through structured results, and keep clinical readiness decisions in the rules-based core service. Do not send credentials or private health details to model providers.
+The agent relays the core’s documented summaries. It does not make readiness decisions or provide medication advice.

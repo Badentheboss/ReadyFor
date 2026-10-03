@@ -19,7 +19,7 @@
           <a class="nav-link" href="#tasks"><span class="nav-icon">✓</span> My tasks <span class="nav-count muted">4</span></a>
         </nav>
         <div class="sidebar-bottom">
-          <div class="demo-label"><span class="pulse"></span> DEMO ENVIRONMENT</div>
+          <div class="demo-label"><span class="pulse"></span> <span id="service-status">CONNECTING</span></div>
           <div class="user-card"><div class="avatar">JD</div><div><strong>Jordan Davis</strong><small>Care coordinator</small></div><span class="more">···</span></div>
         </div>
       </aside>
@@ -27,8 +27,8 @@
       <main class="main-content">
         <header class="topbar"><div class="breadcrumbs">Care coordination <span>/</span> Surgeries</div><div class="top-actions"><span class="today" id="today"></span><button class="icon-button" aria-label="Notifications">♧<i></i></button></div></header>
         <section class="page-heading">
-          <div><div class="eyebrow">MONDAY, OCTOBER 5, 2026</div><h1>Good morning, Jordan <span>✳</span></h1><p>Here’s what needs your attention today.</p></div>
-          <button class="primary-button" id="add-surgery"><span>＋</span> Add surgery</button>
+          <div><div class="eyebrow" id="page-date"></div><h1>Good morning, Jordan <span>✳</span></h1><p>Here’s what needs your attention today.</p></div>
+          <button class="primary-button" id="reset-demo">↻ Reset demo</button>
         </section>
 
         <section class="summary-grid" aria-label="Surgery overview">
@@ -40,7 +40,7 @@
         <section class="list-section" id="surgeries">
           <div class="section-heading"><div><h2>Upcoming surgeries</h2><p>Review readiness and clear blockers before surgery day.</p></div><button class="filter-button">All surgeries <span>⌄</span></button></div>
           <div class="surgery-list" id="surgery-list" aria-live="polite"></div>
-          <div class="demo-note"><span>ⓘ</span> Synthetic demo data · Readiness is rules-based · Staff approval required</div>
+          <div class="demo-note"><span>ⓘ</span> Synthetic demo data · Readiness is rules-based · Staff approval required · <a href="/db/seed/assets/sample-lab-report.png" target="_blank" rel="noreferrer">Open sample lab report</a></div>
         </section>
 
         <footer>ReadyFor <span>·</span> Helping care teams get ahead of surgery day</footer>

@@ -4,18 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "bun src/index.ts",
-    "dev": "bun --watch src/index.ts",
+    "start": "bun core/src/main.ts",
+    "dev": "bun --watch core/src/main.ts",
+    "imessage": "bun imessage/src/main.ts",
     "dashboard": "bun run dashboard/server.ts",
-    "seed:check": "bun db/seed/check.ts"
+    "seed:check": "bun db/seed/check.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@neon/config": "^1.8.3",
     "@neon/env": "^1.5.0",
+    "@neondatabase/serverless": "^1.2.0",
+    "hono": "^4.13.12",
     "spectrum-ts": "^12.10.1"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "typescript": "^5"
+    "typescript": "^7.0.2"
   }
 }
