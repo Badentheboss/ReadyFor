@@ -93,8 +93,13 @@ function accountForm(signUp = false) {
       checkResult(await client.signUp.email({ email: currentEmail, password: values.get('password'), name: values.get('name').trim() }));
       await verificationForm();
     } else {
-      const result = await client.signIn.email({ email: currentEmail, password: values.get('password') });
-      if (result.error?.code === 'EMAIL_NOT_VERIFIED') { await verificationForm(); return; }
+      let result;
+      try { result = await client.signIn.email({ email: currentEmail, password: values.get('password') }); }
+      catch (error) {
+        if (['EMAIL_NOT_VERIFIED', 'email_not_confirmed'].includes(error.code)) { await verificationForm(); return; }
+        throw error;
+      }
+      if (['EMAIL_NOT_VERIFIED', 'email_not_confirmed'].includes(result.error?.code)) { await verificationForm(); return; }
       checkResult(result);
       await restoreAccess();
     }
@@ -156,6 +161,11 @@ async function restoreAccess() {
   const session = checkResult(await client.getSession());
   if (!session?.user) { accountForm(Boolean(invitation)); return; }
   currentEmail = session.user.email;
+  if (invitation && currentEmail.toLowerCase() !== invitation.email.toLowerCase()) {
+    frame('Use your invited work email', `You are signed in as ${currentEmail}, but this invitation is for ${invitation.email}. Sign out, then use the invited account.`, '<button class="primary-button" id="sign-out">Sign out</button>');
+    document.querySelector('#sign-out').onclick = signOut;
+    return;
+  }
   if (!session.user.emailVerified) { await verificationForm(); return; }
   identity = await api('/auth/me');
   if (invitation) {

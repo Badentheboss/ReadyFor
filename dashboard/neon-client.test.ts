@@ -13,6 +13,7 @@ test('pinned Neon SDK account methods pass through the gateway route allowlist',
     authUrl: 'https://auth.example.invalid/neondb/auth', cookieSecret: 's'.repeat(32) },
     async () => Response.json({}), async ({ path }) => {
       paths.push(path);
+      if (path === 'sign-in/email') return Response.json({ code: 'EMAIL_NOT_VERIFIED', message: 'Email not verified' }, { status: 403 });
       return Response.json(path === 'get-session' ? null : { success: true });
     });
   const client = createAuthClient(`${origin}/auth/provider`, { adapter: BetterAuthVanillaAdapter({
@@ -29,5 +30,7 @@ test('pinned Neon SDK account methods pass through the gateway route allowlist',
     for (const result of results) expect(result.error).toBeNull();
     expect(paths).toContain('email-otp/reset-password');
     expect(paths).toContain('forget-password/email-otp');
+    await expect(client.signIn.email({ email: 'staff@example.invalid', password: 'synthetic-test-only' }))
+      .rejects.toMatchObject({ code: 'email_not_confirmed' });
   } finally { server.stop(true); }
 });
