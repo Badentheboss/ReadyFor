@@ -1,0 +1,136 @@
+{
+  "patients": [
+    {
+      "id": "pat_harriet",
+      "finchnodeSubject": "patient-demo-polypharmacy",
+      "displayName": "Harriet Lindqvist",
+      "phone": "env:DEMO_PATIENT_PHONE",
+      "birthDate": "1948-03-02"
+    },
+    {
+      "id": "pat_morgan",
+      "finchnodeSubject": "patient-demo-001",
+      "displayName": "Morgan Rivera",
+      "phone": null,
+      "birthDate": "1988-04-17"
+    },
+    {
+      "id": "pat_multi",
+      "finchnodeSubject": "patient-demo-multi-source",
+      "displayName": "Jordan Ellis",
+      "phone": null,
+      "birthDate": "1986-02-11"
+    }
+  ],
+  "surgeries": [
+    {
+      "id": "sur_harriet",
+      "patientId": "pat_harriet",
+      "procedureCode": "TKA",
+      "procedureName": "Total knee replacement (right)",
+      "daysFromNow": 5,
+      "timeOfDay": "12:30",
+      "location": "Northstar Surgical Center, OR 3",
+      "surgeon": "Dr. Avery Demo"
+    },
+    {
+      "id": "sur_morgan",
+      "patientId": "pat_morgan",
+      "procedureCode": "TKA",
+      "procedureName": "Total knee replacement (left)",
+      "daysFromNow": 3,
+      "timeOfDay": "14:00",
+      "location": "Northstar Surgical Center, OR 1",
+      "surgeon": "Dr. Avery Demo",
+      "requirements": [
+        {
+          "key": "preop_labs",
+          "title": "Pre-op blood work within 30 days",
+          "kind": "lab",
+          "status": "verified",
+          "blocking": true,
+          "owner": "nurse",
+          "reason": "Blood count and metabolic panel reviewed by the pre-op nurse.",
+          "verifiedBy": "nurse:Priya",
+          "source": { "system": "staff", "detail": "Seeded demo data" }
+        },
+        {
+          "key": "diabetes_med_plan",
+          "title": "Diabetes medication plan",
+          "kind": "medication",
+          "status": "verified",
+          "blocking": false,
+          "owner": "nurse",
+          "reason": "Metformin instructions approved and sent to the patient.",
+          "verifiedBy": "nurse:Priya",
+          "source": { "system": "staff", "detail": "Seeded demo data" }
+        },
+        {
+          "key": "transport",
+          "title": "Ride home confirmed",
+          "kind": "logistics",
+          "status": "verified",
+          "blocking": true,
+          "owner": "coordinator",
+          "reason": "Partner will drive; confirmed by phone.",
+          "verifiedBy": "coordinator:Dana",
+          "source": { "system": "staff", "detail": "Seeded demo data" }
+        },
+        {
+          "key": "fasting_ack",
+          "title": "Fasting instructions understood",
+          "kind": "instruction",
+          "status": "verified",
+          "blocking": false,
+          "owner": "patient",
+          "reason": "Patient repeated the fasting rules back correctly.",
+          "verifiedBy": "coordinator:Dana",
+          "source": { "system": "staff", "detail": "Seeded demo data" }
+        }
+      ]
+    },
+    {
+      "id": "sur_jordan",
+      "patientId": "pat_multi",
+      "procedureCode": "TKA",
+      "procedureName": "Total knee replacement (right)",
+      "daysFromNow": 12,
+      "timeOfDay": "13:00",
+      "location": "Northstar Surgical Center, OR 2",
+      "surgeon": "Dr. Avery Demo",
+      "requirements": [
+        {
+          "key": "preop_labs",
+          "title": "Pre-op blood work within 30 days",
+          "kind": "lab",
+          "status": "verified",
+          "blocking": true,
+          "owner": "nurse",
+          "reason": "Blood count and metabolic panel reviewed by the pre-op nurse.",
+          "verifiedBy": "nurse:Priya",
+          "source": { "system": "staff", "detail": "Seeded demo data" }
+        },
+        {
+          "key": "transport",
+          "title": "Ride home confirmed",
+          "kind": "logistics",
+          "status": "open",
+          "blocking": true,
+          "owner": "coordinator",
+          "reason": "The patient has not confirmed who will drive them home.",
+          "source": { "system": "rule", "detail": "Required for every knee replacement" }
+        },
+        {
+          "key": "fasting_ack",
+          "title": "Fasting instructions understood",
+          "kind": "instruction",
+          "status": "open",
+          "blocking": false,
+          "owner": "patient",
+          "reason": "Fasting instructions have not been sent yet.",
+          "source": { "system": "rule", "detail": "Sent two days before surgery" }
+        }
+      ]
+    }
+  ]
+}

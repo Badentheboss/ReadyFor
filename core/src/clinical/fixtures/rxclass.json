@@ -1,0 +1,211 @@
+{
+  "_note": "Canned RxClass answers for offline demos. apixaban byRxcui and the aspirin class ids are from real responses; metformin byDrugName is trimmed from a real response; the rest is hand-assembled in the same shape. A drug that is not listed answers {}, like RxClass does for an unknown drug.",
+  "byRxcui": {
+    "243670": {
+      "rxclassDrugInfoList": {
+        "rxclassDrugInfo": [
+          {
+            "minConcept": {
+              "rxcui": "1191",
+              "name": "aspirin",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "A01AD",
+              "className": "Other agents for local oral treatment",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          },
+          {
+            "minConcept": {
+              "rxcui": "1191",
+              "name": "aspirin",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "B01AC",
+              "className": "Platelet aggregation inhibitors excl. heparin",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          },
+          {
+            "minConcept": {
+              "rxcui": "1191",
+              "name": "aspirin",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "N02BA",
+              "className": "Salicylic acid and derivatives",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          }
+        ]
+      }
+    },
+    "861007": {
+      "rxclassDrugInfoList": {
+        "rxclassDrugInfo": [
+          {
+            "minConcept": {
+              "rxcui": "6809",
+              "name": "metformin",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "A10BA",
+              "className": "Biguanides",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          }
+        ]
+      }
+    },
+    "1364445": {
+      "rxclassDrugInfoList": {
+        "rxclassDrugInfo": [
+          {
+            "minConcept": {
+              "rxcui": "1364430",
+              "name": "apixaban",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "B01AF",
+              "className": "Direct factor Xa inhibitors",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          }
+        ]
+      }
+    }
+  },
+  "byDrugName": {
+    "apixaban": {
+      "rxclassDrugInfoList": {
+        "rxclassDrugInfo": [
+          {
+            "minConcept": {
+              "rxcui": "1364430",
+              "name": "apixaban",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "B01AF",
+              "className": "Direct factor Xa inhibitors",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          }
+        ]
+      }
+    },
+    "aspirin": {
+      "rxclassDrugInfoList": {
+        "rxclassDrugInfo": [
+          {
+            "minConcept": {
+              "rxcui": "1191",
+              "name": "aspirin",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "A01AD",
+              "className": "Other agents for local oral treatment",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          },
+          {
+            "minConcept": {
+              "rxcui": "1191",
+              "name": "aspirin",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "B01AC",
+              "className": "Platelet aggregation inhibitors excl. heparin",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          },
+          {
+            "minConcept": {
+              "rxcui": "1191",
+              "name": "aspirin",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "N02BA",
+              "className": "Salicylic acid and derivatives",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          },
+          {
+            "minConcept": {
+              "rxcui": "1155",
+              "name": "aspirin / codeine",
+              "tty": "MIN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "N02AJ",
+              "className": "Opioids in combination with non-opioid analgesics",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          }
+        ]
+      }
+    },
+    "metformin": {
+      "rxclassDrugInfoList": {
+        "rxclassDrugInfo": [
+          {
+            "minConcept": {
+              "rxcui": "1800",
+              "name": "metformin / sitagliptin",
+              "tty": "MIN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "A10BD",
+              "className": "Combinations of oral blood glucose lowering drugs",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          },
+          {
+            "minConcept": {
+              "rxcui": "6809",
+              "name": "metformin",
+              "tty": "IN"
+            },
+            "rxclassMinConceptItem": {
+              "classId": "A10BA",
+              "className": "Biguanides",
+              "classType": "ATC1-4"
+            },
+            "rela": "",
+            "relaSource": "ATC"
+          }
+        ]
+      }
+    }
+  }
+}
