@@ -1,15 +1,7 @@
-// Temporary contract-shaped fixture. Replace this adapter with the agreed core API once docs/contract.md lands.
-const surgeries = [
-  { id: 'surg-001', name: 'Margaret Chen', initials: 'MC', age: 68, procedure: 'Total knee replacement', date: 'Oct 10, 2026', days: 5, readiness: 'at-risk', owner: 'Jordan Davis', tasks: [{ title: 'Arrange ride home', note: 'Patient said they may not have transportation after discharge.', owner: 'Sam Rivera' }], blockers: [
-    { id: 'b-101', kind: 'medication', title: 'Blood thinner pause plan', reason: 'Apixaban found in medication list. No staff-approved pause plan is recorded.', owner: 'Dr. Patel', action: 'Review medication template', actionKind: 'template' },
-    { id: 'b-102', kind: 'lab', title: 'Recent lab results', reason: 'Required pre-op lab result is not on file.', owner: 'Jordan Davis', action: 'Mark evidence received', actionKind: 'evidence' },
-    { id: 'b-103', kind: 'transport', title: 'Ride home after surgery', reason: 'Patient reported they may not have a ride home.', owner: 'Sam Rivera', action: 'Confirm transport', actionKind: 'transport' }
-  ] },
-  { id: 'surg-002', name: 'Robert Williams', initials: 'RW', age: 72, procedure: 'Total knee replacement', date: 'Oct 12, 2026', days: 7, readiness: 'attention', owner: 'Jordan Davis', tasks: [], blockers: [
-    { id: 'b-201', kind: 'fasting', title: 'Confirm fasting instructions', reason: 'Patient has not confirmed the pre-surgery fasting instructions.', owner: 'Alex Morgan', action: 'Mark confirmed', actionKind: 'verify' }
-  ] },
-  { id: 'surg-003', name: 'Denise Johnson', initials: 'DJ', age: 59, procedure: 'Total knee replacement', date: 'Oct 15, 2026', days: 10, readiness: 'ready', owner: 'Alex Morgan', tasks: [], blockers: [] }
-];
+import { createDashboardProvider } from './provider.js';
+
+const provider = createDashboardProvider(window.READYFOR_CONFIG?.provider);
+let surgeries = [];
 
 const labels = { 'at-risk': 'At risk', attention: 'Needs attention', ready: 'Ready' };
 let selectedId = surgeries[0].id;
@@ -77,20 +69,29 @@ function notify(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('visible'), 2600);
 }
-function handleAction(surgery, blockerId) {
+async function handleAction(surgery, blockerId) {
   const blocker = surgery.blockers.find((item) => item.id === blockerId);
   if (!blocker || blocker.cleared) return;
-  blocker.cleared = true;
-  blocker.approval = blocker.actionKind === 'template' ? 'Staff-approved template relayed · Approved by Jordan Davis' : 'Verified by Jordan Davis';
-  if (blocker.actionKind === 'template') notify('Medication template approved and ready to relay.');
-  else if (blocker.actionKind === 'evidence') notify('Lab evidence marked received. Staff verification recorded.');
-  else if (blocker.actionKind === 'transport') notify('Transport confirmed and blocker cleared.');
-  else notify('Requirement confirmed.');
-  renderList();
-  renderDetail();
+  try {
+    surgeries = await provider.resolveBlocker(surgery.id, blockerId);
+    if (blocker.actionKind === 'template') notify('Demo action recorded. Staff review is still required.');
+    else notify('Demo verification recorded.');
+    renderList();
+    renderDetail();
+  } catch (error) {
+    notify(error.message);
+  }
 }
 
 document.querySelector('#today').textContent = 'MON, OCT 5';
 document.querySelector('#add-surgery').addEventListener('click', () => notify('Surgery creation will be connected to the core service.'));
-renderList();
-renderDetail();
+provider.listSurgeries().then((items) => {
+  surgeries = items;
+  selectedId = surgeries[0]?.id ?? null;
+  renderList();
+  if (surgeries.length) renderDetail();
+  else panel.innerHTML = '<div class="empty-state">No surgeries are available.</div>';
+}).catch((error) => {
+  panel.innerHTML = `<div class="empty-state">${error.message}</div>`;
+  notify(error.message);
+});
