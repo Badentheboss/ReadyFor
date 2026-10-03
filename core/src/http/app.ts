@@ -187,6 +187,46 @@ export function createApp(deps: AppDeps): Hono<Env> {
     return c.json({ message: await store.updateMessage(id, { deliveryStatus: "sent" }) });
   });
 
+  app.post("/outbox/:id/failed", async (c) => {
+    can(c, "outbox");
+    const id = c.req.param("id");
+    const body = await readJsonObject(c);
+    const error = optionalString(body, "error")?.trim().slice(0, 500) || "Delivery failed";
+    const message = await store.getMessage(id);
+    if (!message) throw notFound("message", id);
+    if (message.direction !== "out" || message.deliveryStatus !== "queued") {
+      throw invalidTransition("Only a queued outbound message can be marked failed");
+    }
+    const updated = await store.updateMessage(id, { deliveryStatus: "failed", deliveryError: error });
+    await store.addEvent({
+      surgeryId: message.surgeryId,
+      type: "message_failed",
+      summary: `A message to the patient could not be delivered: ${error}`,
+      actor: actorFor(c.get("identity")) ?? "imessage",
+      data: { messageId: id, error },
+    });
+    return c.json({ message: updated });
+  });
+
+  app.post("/messages/:id/retry", async (c) => {
+    const actor = can(c, "outreach_retry");
+    const id = c.req.param("id");
+    const message = await store.getMessage(id);
+    if (!message) throw notFound("message", id);
+    if (message.deliveryStatus !== "failed") throw invalidTransition("Only a failed message can be retried");
+    const body = await readJsonObject(c).catch(() => ({}) as Body);
+    const who = actor ?? optionalString(body, "actor")?.trim() ?? "staff";
+    const updated = await store.updateMessage(id, { deliveryStatus: "queued", deliveryError: null });
+    await store.addEvent({
+      surgeryId: message.surgeryId,
+      type: "message_retried",
+      summary: `${who} queued a failed message to the patient again.`,
+      actor: who,
+      data: { messageId: id },
+    });
+    return c.json({ message: updated });
+  });
+
   app.get("/documents/:id/content", async (c) => {
     can(c, "read");
     const id = c.req.param("id");

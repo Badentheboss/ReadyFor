@@ -1,4 +1,4 @@
-import type { Readiness, Requirement, Store, Surgery, SurgeryDetail, SurgerySummary, Task, Patient } from "../types.ts";
+import type { Message, Outreach, Readiness, Requirement, Store, Surgery, SurgeryDetail, SurgerySummary, Task, Patient } from "../types.ts";
 import { blockerSummaries, computeReadiness } from "../readiness.ts";
 import { notFound } from "./errors.ts";
 
@@ -45,7 +45,30 @@ export async function buildDetail(store: Store, surgery: Surgery, now: Date): Pr
     messages,
     documents,
     events,
+    outreach: buildOutreach(requirements, messages),
   };
+}
+
+/** One entry per requirement whose approved template produced a patient message. */
+export function buildOutreach(requirements: Requirement[], messages: Message[]): Outreach[] {
+  const byId = new Map(messages.map((m) => [m.id, m]));
+  const outreach: Outreach[] = [];
+  for (const r of requirements) {
+    const message = r.outreachMessageId ? byId.get(r.outreachMessageId) : undefined;
+    if (!message || message.direction !== "out") continue;
+    // Messages are listed oldest first, so anything after this one in the list came later.
+    const ack = messages
+      .slice(messages.indexOf(message) + 1)
+      .find((m) => m.direction === "in" && m.classification?.intent === "acknowledgement");
+    outreach.push({
+      requirementId: r.id,
+      messageId: message.id,
+      deliveryStatus: message.deliveryStatus === "failed" ? "failed" : message.deliveryStatus === "queued" ? "queued" : "sent",
+      deliveryError: message.deliveryError ?? null,
+      acknowledgedAt: ack?.createdAt ?? null,
+    });
+  }
+  return outreach;
 }
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

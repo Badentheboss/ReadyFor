@@ -33,9 +33,9 @@ const PATIENT_COLS = "id, finchnode_subject, display_name, phone, to_char(birth_
 const SURGERY_COLS =
   "id, patient_id, procedure_code, procedure_name, scheduled_at, location, surgeon, status, last_checked_at, created_at";
 const REQ_COLS =
-  "id, surgery_id, key, title, kind, status, blocking, owner, reason, source, proposal, evidence, verified_by, verified_at, staff_note, created_at, updated_at";
+  "id, surgery_id, key, title, kind, status, blocking, owner, reason, source, proposal, evidence, verified_by, verified_at, staff_note, outreach_message_id, created_at, updated_at";
 const TASK_COLS = "id, surgery_id, requirement_id, title, detail, owner, status, origin, created_at, completed_at, completed_by";
-const MSG_COLS = "id, surgery_id, patient_id, direction, channel, body, attachments, classification, delivery_status, created_at";
+const MSG_COLS = "id, surgery_id, patient_id, direction, channel, body, attachments, classification, delivery_status, delivery_error, created_at";
 const DOC_COLS = "id, surgery_id, requirement_id, message_id, mime_type, extracted, status, created_at";
 const EVENT_COLS = "id, surgery_id, type, summary, actor, data, created_at";
 
@@ -94,6 +94,7 @@ const toRequirement = (r: any): Requirement => ({
   verifiedBy: r.verified_by ?? null,
   verifiedAt: isoOrNull(r.verified_at),
   staffNote: r.staff_note ?? null,
+  outreachMessageId: r.outreach_message_id ?? null,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -122,6 +123,7 @@ const toMessage = (r: any): Message => ({
   attachments: parseJson<AttachmentMeta[]>(r.attachments) ?? [],
   classification: parseJson<Classification>(r.classification),
   deliveryStatus: r.delivery_status,
+  deliveryError: r.delivery_error ?? null,
   createdAt: iso(r.created_at),
 });
 
@@ -180,6 +182,7 @@ const REQUIREMENT_PATCH_COLUMNS: Record<string, PatchColumn> = {
   verifiedBy: { column: "verified_by" },
   verifiedAt: { column: "verified_at" },
   staffNote: { column: "staff_note" },
+  outreachMessageId: { column: "outreach_message_id" },
 };
 
 const TASK_PATCH_COLUMNS: Record<string, PatchColumn> = {
@@ -192,6 +195,7 @@ const TASK_PATCH_COLUMNS: Record<string, PatchColumn> = {
 
 const MESSAGE_PATCH_COLUMNS: Record<string, PatchColumn> = {
   deliveryStatus: { column: "delivery_status" },
+  deliveryError: { column: "delivery_error" },
   classification: { column: "classification", json: true },
   attachments: { column: "attachments", json: true },
 };

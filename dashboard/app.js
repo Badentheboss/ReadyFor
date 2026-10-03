@@ -218,6 +218,7 @@ function requirementCard(req) {
     }
   }
   const staffNote = cleared && req.staffNote ? `<p class="provenance"><span class="system">Note</span><span>${esc(req.staffNote)}</span></p>` : '';
+  const outreach = outreachStrip(state.detail?.outreach?.find((o) => o.requirementId === req.id));
 
   return `<article class="req ${cleared ? 'cleared' : ''} ${review ? 'review' : ''}" id="req-${esc(req.id)}">
     <div class="req-head">
@@ -225,9 +226,30 @@ function requirementCard(req) {
       <div><p class="req-title">${esc(req.title)}</p><p class="req-reason">${esc(req.reason)}</p><div class="req-tags">${tags.join('')}</div></div>
       ${statusBadge}
     </div>
-    ${provenance}${staffNote}${proposal}${evidence}${composer}
+    ${provenance}${staffNote}${outreach}${proposal}${evidence}${composer}
     ${actions ? `<div class="req-actions">${actions}</div>` : ''}
   </article>`;
+}
+
+// Approved plan → message delivery → patient acknowledgement, shown as three separate steps.
+function outreachStrip(o) {
+  if (!o) return '';
+  const delivery = {
+    queued: { cls: 'pending', label: 'Message queued' },
+    sent: { cls: 'done', label: 'Message delivered' },
+    failed: { cls: 'failed', label: 'Delivery failed' },
+  }[o.deliveryStatus];
+  const ack = o.acknowledgedAt
+    ? { cls: 'done', label: `Patient acknowledged · ${relativeTime(o.acknowledgedAt)}` }
+    : { cls: o.deliveryStatus === 'sent' ? 'pending' : 'idle', label: 'Awaiting acknowledgement' };
+  return `<div class="outreach" aria-label="Patient outreach">
+    <ol>
+      <li class="done">${icon('check')}Plan approved</li>
+      <li class="${delivery.cls}">${icon(o.deliveryStatus === 'failed' ? 'alert' : o.deliveryStatus === 'sent' ? 'check' : 'send')}${delivery.label}</li>
+      <li class="${ack.cls}">${icon(o.acknowledgedAt ? 'check' : 'clock')}${ack.label}</li>
+    </ol>
+    ${o.deliveryStatus === 'failed' ? `<div class="outreach-failed"><span>${esc(o.deliveryError ?? 'The message could not be delivered.')}</span><button class="ghost-button" data-retry="${esc(o.messageId)}">${icon('refresh')}Retry send</button></div>` : ''}
+  </div>`;
 }
 
 function noteComposer(req, action) {
@@ -285,7 +307,7 @@ function conversationPanel(d) {
     ? messages.map((m) => {
       const dir = m.direction === 'in' ? 'in' : 'out';
       const status = dir === 'out'
-        ? (m.deliveryStatus === 'queued' ? '<span class="queued">Queued</span>' : 'Sent')
+        ? (m.deliveryStatus === 'queued' ? '<span class="queued">Queued</span>' : m.deliveryStatus === 'failed' ? '<span class="failed">Not delivered</span>' : 'Sent')
         : (m.classification?.intent ? `<span class="intent">${esc(m.classification.intent.replaceAll('_', ' '))}</span>` : 'Received');
       const files = m.attachments?.length ? `<br>${icon('clip')} ${plural(m.attachments.length, 'attachment')}` : '';
       return `<div class="bubble ${dir}">${esc(m.body) || '<em>Attachment</em>'}${files}</div><div class="bubble-meta ${dir}">${esc(m.channel)} · ${clockTime(m.createdAt)} · ${status}</div>`;
@@ -440,7 +462,7 @@ async function run(button, work, message) {
 
 const ACTION_DONE = {
   verify: 'Verified and logged.',
-  approve_template: 'Approved. The message is queued for the patient.',
+  approve_template: 'Plan approved. Delivery to the patient is tracked on the card.',
   waive: 'Requirement waived.',
   reject_evidence: 'Evidence rejected. The requirement is open again.',
   reopen: 'Requirement reopened.',
@@ -498,6 +520,10 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (target.hasAttribute('data-cancel-compose')) { state.composer = null; renderCase(); return; }
+  if (target.dataset.retry) {
+    run(target, () => provider.retryMessage(target.dataset.retry), 'Message queued again for the patient.');
+    return;
+  }
   if (target.dataset.complete) {
     run(target, () => provider.completeTask(target.dataset.complete), 'Follow-up done. Clear its requirement separately once verified.');
     return;

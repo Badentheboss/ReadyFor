@@ -106,10 +106,13 @@ export async function applyRequirementAction(
           deliveryStatus: "queued",
         }),
       );
+      // Approval is the clinical decision, so it clears the requirement. Delivery is tracked
+      // separately (SurgeryDetail.outreach) so a failed send stays visible.
       patch = {
         status: "verified",
-        reason: `Message approved by ${actor} and queued for the patient.`,
+        reason: `Plan approved by ${actor}. The message to the patient is tracked under outreach.`,
         ...verifiedStamp,
+        outreachMessageId: outbound[0]!.id,
       };
       eventType = "template_approved";
       summary = `${actor} approved the ${proposal.drugName} message for "${requirement.title}" and queued it for the patient.`;
@@ -130,7 +133,7 @@ export async function applyRequirementAction(
       summary = `${actor} rejected the evidence for "${requirement.title}": ${note}`;
       break;
     case "reopen":
-      patch = { status: "open", reason: `Reopened by ${actor}.`, ...cleared };
+      patch = { status: "open", reason: `Reopened by ${actor}.`, ...cleared, outreachMessageId: null };
       eventType = "requirement_reopened";
       summary = `${actor} reopened "${requirement.title}".`;
       break;

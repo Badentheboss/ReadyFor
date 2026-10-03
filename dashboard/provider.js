@@ -99,6 +99,7 @@ function mapDetail(detail) {
     messages: detail.messages,
     documents: detail.documents,
     events: detail.events,
+    outreach: detail.outreach ?? [],
   };
 }
 
@@ -161,6 +162,7 @@ function createCoreProvider(baseUrl, config = {}) {
       });
     },
     resetDemo: () => json('/demo/reset', 'POST'),
+    retryMessage: (messageId) => json(`/messages/${encodeURIComponent(messageId)}/retry`, 'POST', {}),
     health: () => json('/health'),
     documentUrl: () => null,
     async documentBlob(documentId) {
@@ -230,6 +232,7 @@ function createMockProvider() {
       surgery.tasks.push({ title, owner, detail, state: 'open' });
     },
     async completeTask() { throw new Error('Task completion is available only against the core API.'); },
+    async retryMessage() { throw new Error('Retrying a message is available only against the core API.'); },
     async sendPatientMessage(surgeryId, body) {
       const surgery = (await loadFixtures()).surgeries.find((item) => item.id === surgeryId);
       if (!surgery) throw new Error('Surgery was not found in the mock fixture.');

@@ -157,7 +157,7 @@ All surgeries, soonest first. Response `{ "surgeries": SurgerySummary[] }`.
 
 ### GET /surgeries/:id
 
-Response is a `SurgeryDetail`: `{ surgery, patient, readiness, requirements, tasks, messages, documents, events }`. Lists are oldest first, except `events`, which is newest first and capped at 50. A requirement in full:
+Response is a `SurgeryDetail`: `{ surgery, patient, readiness, requirements, tasks, messages, documents, events, outreach }`. Lists are oldest first, except `events`, which is newest first and capped at 50. A requirement in full:
 
 ```json
 {
@@ -235,7 +235,7 @@ Request `{ "action": RequirementAction, "actor": string, "note"?: string }`.
 | Action | Allowed from | Result | `note` |
 | --- | --- | --- | --- |
 | `verify` | `open`, `evidence_received` | `verified`; a linked document becomes `verified` | optional |
-| `approve_template` | `open` on a requirement with a `proposal` | `verified`; the template is sent to the patient with `{{staff_instruction}}` replaced by `note` | required when `requiresStaffInstruction` |
+| `approve_template` | `open` on a requirement with a `proposal` | `verified`; the template is queued for the patient with `{{staff_instruction}}` replaced by `note`, and its delivery is tracked in `outreach` | required when `requiresStaffInstruction` |
 | `waive` | `open`, `evidence_received` | `waived` | required |
 | `reject_evidence` | `evidence_received` | `open`; the linked document becomes `rejected` | required |
 | `reopen` | `verified`, `waived`, `satisfied` | `open` | optional |
@@ -322,6 +322,25 @@ Outbound messages waiting to be delivered, oldest first. `channel` defaults to `
 
 Marks a queued message as sent. No body. Response `{ "message": Message }`.
 
+### POST /outbox/:id/failed
+
+The adapter gave up on a queued message (after 3 attempts). Request `{ "error"?: string }`. The message becomes `failed`, leaves the outbox, and stays visible to staff in `outreach`. Only a `queued` outbound message can fail; anything else is 409. Response `{ "message": Message }`.
+
+### POST /messages/:id/retry
+
+Staff put a `failed` message back in the outbox. No body needed. Anything but `failed` is 409. Response `{ "message": Message }`.
+
+### Outreach
+
+Approving a template is the clinical decision, so it clears the requirement and counts toward readiness at once. Whether the patient was actually told is shown separately, in `SurgeryDetail.outreach`, one entry per approved requirement:
+
+```json
+{ "requirementId": "req_a1", "messageId": "msg_q4", "deliveryStatus": "failed",
+  "deliveryError": "Recipient is not reachable on iMessage", "acknowledgedAt": null }
+```
+
+`deliveryStatus` is `queued`, `sent` or `failed`. `acknowledgedAt` is the time of the first patient reply classified as `acknowledgement` after the message. Reopening the requirement removes its entry. A failed send never changes readiness; it stays on the card until someone retries it.
+
 ### GET /documents/:id/content
 
 The stored file, with its own `Content-Type`. Use it as an `<img src>`.
@@ -381,7 +400,8 @@ Auth is on when the core has `NEON_AUTH_BASE_URL`. Every route except `GET /heal
 | `POST /tasks`, `POST /tasks/:id/actions` | yes | yes | yes | no | as the linked person |
 | `POST /messages/inbound` with `simulated` or `asione` | yes | yes | yes | no | no |
 | `POST /messages/inbound` with `imessage` | no | no | no | yes | no |
-| `GET /outbox`, `POST /outbox/:id/sent` | no | no | yes | yes | no |
+| `GET /outbox`, `POST /outbox/:id/sent`, `POST /outbox/:id/failed` | no | no | yes | yes | no |
+| `POST /messages/:id/retry` | yes | yes | yes | no | no |
 | `POST /demo/reset` | no | no | yes | no | no |
 
 ### GET /me

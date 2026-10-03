@@ -168,6 +168,23 @@ describe("outbox", () => {
     expect(s.core.calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
+  test("after three failed sends the message is reported failed and not sent again", async () => {
+    let reported = false;
+    const s = setup((c) => {
+      if (c.url.includes("/outbox?")) return json({ messages: reported ? [] : [queued("msg_6", "+17345550100")] });
+      if (c.url.endsWith("/failed")) reported = true;
+      return json({ message: {} });
+    });
+    for (let i = 0; i < 4; i++) {
+      s.failNextSend();
+      await s.bridge.pollOutbox();
+    }
+    const posts = s.core.calls.filter((c) => c.method === "POST");
+    expect(posts.map((c) => c.url)).toEqual(["http://core.test/outbox/msg_6/failed"]);
+    expect(posts[0]?.body).toEqual({ error: "network down" });
+    expect(s.sent).toHaveLength(0);
+  });
+
   test("a poll failure is logged and does not throw", async () => {
     const s = setup(() => json({}, 500));
     await s.bridge.pollOutbox();

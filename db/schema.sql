@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS messages (
   body             text NOT NULL,
   attachments      jsonb NOT NULL DEFAULT '[]'::jsonb,
   classification   jsonb,
-  delivery_status  text NOT NULL CHECK (delivery_status IN ('queued', 'sent', 'received')),
+  delivery_status  text NOT NULL CHECK (delivery_status IN ('queued', 'sent', 'received', 'failed')),
   created_at       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS messages_surgery_idx ON messages (surgery_id, created_at);
@@ -101,3 +101,9 @@ CREATE TABLE IF NOT EXISTS events (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS events_surgery_idx ON events (surgery_id, created_at DESC);
+
+-- Upgrades for databases created before patient outreach was tracked. Safe to run on every start.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivery_error text;
+ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_delivery_status_check;
+ALTER TABLE messages ADD CONSTRAINT messages_delivery_status_check CHECK (delivery_status IN ('queued', 'sent', 'received', 'failed'));
+ALTER TABLE requirements ADD COLUMN IF NOT EXISTS outreach_message_id text REFERENCES messages (id) ON DELETE SET NULL;

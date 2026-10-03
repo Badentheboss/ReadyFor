@@ -119,6 +119,8 @@ export interface Requirement {
   staffNote: string | null;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
+  /** The patient message queued when staff approved this requirement's template. */
+  outreachMessageId?: Id | null;
 }
 
 export type TaskOrigin = "record_check" | "patient_message" | "document" | "staff" | "agent";
@@ -174,8 +176,13 @@ export interface Message {
   body: string;
   attachments: AttachmentMeta[];
   classification: Classification | null;
-  /** in: always "received". out: "queued" until a channel adapter delivers it, then "sent". */
-  deliveryStatus: "queued" | "sent" | "received";
+  /**
+   * in: always "received". out: "queued" until a channel adapter delivers it, then "sent";
+   * "failed" when the adapter gave up, until staff retry it (back to "queued").
+   */
+  deliveryStatus: "queued" | "sent" | "received" | "failed";
+  /** Why the last delivery attempt failed. Null unless deliveryStatus is "failed". */
+  deliveryError?: string | null;
   createdAt: IsoDateTime;
 }
 
@@ -266,6 +273,22 @@ export interface SurgeryDetail {
   messages: Message[];
   documents: DocumentRecord[];
   events: EventRecord[];
+  /** Patient outreach for approved plans, tracked apart from readiness. */
+  outreach: Outreach[];
+}
+
+/**
+ * What happened to the message sent for an approved plan. Approval is the clinical decision
+ * and clears the requirement; delivery and acknowledgement are shown separately so staff can
+ * tell a cleared plan from a patient who has actually been told.
+ */
+export interface Outreach {
+  requirementId: Id;
+  messageId: Id;
+  deliveryStatus: "queued" | "sent" | "failed";
+  deliveryError: string | null;
+  /** The first "acknowledgement" reply from the patient after the message, if any. */
+  acknowledgedAt: IsoDateTime | null;
 }
 
 export type RequirementAction = "verify" | "approve_template" | "waive" | "reject_evidence" | "reopen";
@@ -307,6 +330,7 @@ export type RequirementPatch = Partial<
     | "verifiedBy"
     | "verifiedAt"
     | "staffNote"
+    | "outreachMessageId"
   >
 >;
 
@@ -406,7 +430,7 @@ export interface Store {
   createMessage(input: NewMessage): Promise<Message>;
   updateMessage(
     id: Id,
-    patch: Partial<Pick<Message, "deliveryStatus" | "classification" | "attachments">>,
+    patch: Partial<Pick<Message, "deliveryStatus" | "deliveryError" | "classification" | "attachments">>,
   ): Promise<Message>;
   /** Outbound messages on `channel` still queued, oldest first. */
   listOutbox(channel: Channel): Promise<Message[]>;

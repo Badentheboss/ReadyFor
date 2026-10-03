@@ -90,6 +90,17 @@ describe('dashboard auth boundary', () => {
       'x-forwarded-host': 'evil.example', authorization: 'Bearer private-service-token',
     }))).status).toBe(200);
   });
+  test('retrying a failed patient message is forwarded with the bearer token', async () => {
+    const seen: string[] = [];
+    const gateway = createGateway(config, async (input, options) => {
+      seen.push(`${options?.method} ${String(input)} ${new Headers(options?.headers).get('authorization')}`);
+      return Response.json({ message: { deliveryStatus: 'queued' } });
+    }, fakeProvider);
+    expect((await gateway(post('/api/messages/msg_1/retry', { authorization: 'Bearer staff-token' }))).status).toBe(200);
+    expect(seen).toEqual(['POST http://localhost:8787/messages/msg_1/retry Bearer staff-token']);
+    expect((await gateway(post('/api/messages/msg_1/retry'))).status).toBe(401);
+    expect((await gateway(post('/api/outbox/msg_1/failed', { authorization: 'Bearer staff-token' }))).status).toBe(404);
+  });
   test('core requests forward bearer only to fixed core and do not forward redirects or cookies', async () => {
     const gateway = createGateway(config, async (input, options) => {
       expect(String(input)).toBe('http://localhost:8787/surgeries/sur_1');

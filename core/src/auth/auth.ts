@@ -36,6 +36,7 @@ export type Permission =
   | "inbound_simulated"
   | "inbound_imessage"
   | "outbox"
+  | "outreach_retry"
   | "demo_reset";
 
 /** Verifies a bearer JWT and returns its claims, or throws. Injected so tests need no network. */
@@ -103,6 +104,7 @@ function staffAllowed(role: StaffRole, permission: Permission): boolean {
     case "requirement_action":
     case "task_write":
     case "inbound_simulated":
+    case "outreach_retry":
       return true;
     case "clinical_requirement_action":
       return CLINICAL_ROLES.includes(role);

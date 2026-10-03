@@ -35,6 +35,8 @@ export interface BridgeOptions {
 
 type OutboxMessage = Message & { phone: string | null };
 
+const MAX_SEND_ATTEMPTS = 3;
+
 export function createBridge(opts: BridgeOptions) {
   const rawFetch = opts.fetch ?? fetch;
   const authHeader: Record<string, string> = opts.serviceToken ? { authorization: `Bearer ${opts.serviceToken}` } : {};
@@ -48,6 +50,9 @@ export function createBridge(opts: BridgeOptions) {
   // when marking a message as sent fails and the message shows up in the next poll.
   const delivered = new Set<string>();
   const warnedNoPhone = new Set<string>();
+  // Send attempts per queued message. After MAX_SEND_ATTEMPTS the core is told it failed,
+  // so staff see it and can retry instead of the adapter retrying forever.
+  const attempts = new Map<string, number>();
   let polling = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
@@ -103,6 +108,21 @@ export function createBridge(opts: BridgeOptions) {
     }
   }
 
+  async function markFailed(id: string, error: string): Promise<boolean> {
+    try {
+      const res = await doFetch(`${base}/outbox/${encodeURIComponent(id)}/failed`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error }),
+      });
+      if (!res.ok) log(`could not mark ${id} as failed (HTTP ${res.status})`);
+      return res.ok;
+    } catch (err) {
+      log(`could not mark ${id} as failed: ${describe(err)}`);
+      return false;
+    }
+  }
+
   async function markSent(id: string): Promise<boolean> {
     try {
       const res = await doFetch(`${base}/outbox/${encodeURIComponent(id)}/sent`, { method: "POST" });
@@ -147,9 +167,17 @@ export function createBridge(opts: BridgeOptions) {
           try {
             await opts.transport.send(m.phone, m.body);
           } catch (err) {
-            log(`send of outbox message ${m.id} failed: ${describe(err)}; will retry`);
+            const tries = (attempts.get(m.id) ?? 0) + 1;
+            attempts.set(m.id, tries);
+            if (tries < MAX_SEND_ATTEMPTS) {
+              log(`send of outbox message ${m.id} failed (attempt ${tries}/${MAX_SEND_ATTEMPTS}): ${describe(err)}; will retry`);
+            } else if (await markFailed(m.id, describe(err))) {
+              attempts.delete(m.id);
+              log(`send of outbox message ${m.id} failed ${tries} times; reported to the core for staff to retry`);
+            }
             continue;
           }
+          attempts.delete(m.id);
           delivered.add(m.id);
           log(`out ${maskPhone(m.phone)}: ${preview(m.body)}`);
         }

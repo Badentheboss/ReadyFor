@@ -165,7 +165,7 @@ describe("reads", () => {
     const r = await get("/surgeries/sur_harriet");
     expect(r.status).toBe(200);
     expect(Object.keys(r.json).sort()).toEqual(
-      ["documents", "events", "messages", "patient", "readiness", "requirements", "surgery", "tasks"],
+      ["documents", "events", "messages", "outreach", "patient", "readiness", "requirements", "surgery", "tasks"],
     );
     expect(r.json.readiness.headline).toBe("At risk: 3 blockers, 5 days out");
     expect(r.json.requirements.map((q: any) => q.key)).toEqual(["anticoagulant_plan", "preop_labs", "transport"]);
@@ -750,5 +750,64 @@ describe("errors and CORS", () => {
     });
     expect(pre.status).toBeLessThan(300);
     expect(pre.headers.get("Access-Control-Allow-Origin")).toBe("*");
+  });
+});
+
+describe("patient outreach", () => {
+  async function approve() {
+    const [anticoagulant] = await seedHarriet();
+    const r = await actOn(anticoagulant!.id, "approve_template", { note: "Hold it." });
+    return { requirementId: anticoagulant!.id, messageId: r.json.outbound[0].id as string };
+  }
+  const outreach = async () => (await get("/surgeries/sur_harriet")).json.outreach;
+
+  test("approval clears the requirement and tracks the message as queued", async () => {
+    const { requirementId, messageId } = await approve();
+    expect(await outreach()).toEqual([{ requirementId, messageId, deliveryStatus: "queued", deliveryError: null, acknowledgedAt: null }]);
+    await post(`/outbox/${messageId}/sent`);
+    expect((await outreach())[0].deliveryStatus).toBe("sent");
+  });
+
+  test("a failed send stays visible, leaves the outbox, and can be retried", async () => {
+    const { messageId } = await approve();
+    const failed = await post(`/outbox/${messageId}/failed`, { error: "Recipient unreachable" });
+    expect(failed.status).toBe(200);
+    expect(failed.json.message).toMatchObject({ deliveryStatus: "failed", deliveryError: "Recipient unreachable" });
+    expect((await outreach())[0]).toMatchObject({ deliveryStatus: "failed", deliveryError: "Recipient unreachable" });
+    expect((await get("/outbox")).json.messages).toEqual([]);
+    expect((await store.listEvents("sur_harriet"))[0]?.type).toBe("message_failed");
+
+    expect((await post(`/outbox/${messageId}/failed`, {})).status).toBe(409);
+    const retried = await post(`/messages/${messageId}/retry`, { actor: "coordinator:Dana" });
+    expect(retried.status).toBe(200);
+    expect(retried.json.message).toMatchObject({ deliveryStatus: "queued", deliveryError: null });
+    expect((await get("/outbox")).json.messages).toHaveLength(1);
+    expect((await post(`/messages/${messageId}/retry`)).status).toBe(409);
+  });
+
+  test("an acknowledgement after the message is recorded; one before it is not", async () => {
+    const ackMessage = (body: string) =>
+      store.createMessage({
+        surgeryId: "sur_harriet",
+        patientId: "pat_harriet",
+        direction: "in",
+        channel: "simulated",
+        body,
+        deliveryStatus: "received",
+        classification: { intent: "acknowledgement", confidence: 0.9, summary: body, requirementKey: null, faqTopic: null },
+      });
+    const [anticoagulant] = await seedHarriet();
+    await ackMessage("ok");
+    const r = await actOn(anticoagulant!.id, "approve_template", { note: "Hold it." });
+    expect((await outreach())[0].acknowledgedAt).toBeNull();
+    const ack = await ackMessage("Got it, thanks");
+    expect((await outreach())[0].acknowledgedAt).toBe(ack.createdAt);
+    expect(r.json.outbound).toHaveLength(1);
+  });
+
+  test("reopening the requirement drops its outreach link", async () => {
+    const { requirementId } = await approve();
+    await actOn(requirementId, "reopen");
+    expect(await outreach()).toEqual([]);
   });
 });
