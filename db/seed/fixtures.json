@@ -1,0 +1,45 @@
+{
+  "notice": "Synthetic demo data only. This fixture is not yet a database seed; map it to the agreed db/schema.sql after the contract checkpoint.",
+  "surgeries": [
+    {
+      "id": "surg-001",
+      "patient": { "name": "Margaret Chen", "initials": "MC", "age": 68 },
+      "procedure": "Total knee replacement",
+      "surgeryDate": "2026-10-10",
+      "readiness": "at-risk",
+      "blockers": [
+        { "id": "b-101", "kind": "medication", "title": "Blood thinner pause plan", "reason": "Apixaban found in medication list; no staff-approved pause plan recorded.", "owner": "Dr. Patel", "state": "open" },
+        { "id": "b-102", "kind": "lab", "title": "Recent lab results", "reason": "Required pre-op lab result is not on file.", "owner": "Jordan Davis", "state": "open" },
+        { "id": "b-103", "kind": "transport", "title": "Ride home after surgery", "reason": "Patient reported they may not have a ride home.", "owner": "Sam Rivera", "state": "open" }
+      ],
+      "tasks": [{ "title": "Arrange ride home", "owner": "Sam Rivera", "state": "open" }]
+    },
+    {
+      "id": "surg-002",
+      "patient": { "name": "Robert Williams", "initials": "RW", "age": 72 },
+      "procedure": "Total knee replacement",
+      "surgeryDate": "2026-10-12",
+      "readiness": "needs-attention",
+      "blockers": [{ "id": "b-201", "kind": "fasting", "title": "Confirm fasting instructions", "reason": "Patient has not confirmed the pre-surgery fasting instructions.", "owner": "Alex Morgan", "state": "open" }],
+      "tasks": []
+    },
+    {
+      "id": "surg-003",
+      "patient": { "name": "Denise Johnson", "initials": "DJ", "age": 59 },
+      "procedure": "Total knee replacement",
+      "surgeryDate": "2026-10-15",
+      "readiness": "ready",
+      "blockers": [],
+      "tasks": []
+    }
+  ],
+  "requirementTemplates": [
+    { "id": "req-labs", "kind": "lab", "title": "Recent pre-operative labs", "requiresStaffVerification": true },
+    { "id": "req-anticoagulant-plan", "kind": "medication", "title": "Staff-reviewed pause plan for anticoagulant", "requiresStaffApproval": true },
+    { "id": "req-transport", "kind": "transport", "title": "Ride home arranged", "requiresStaffVerification": true },
+    { "id": "req-fasting", "kind": "fasting", "title": "Fasting instructions confirmed", "requiresStaffVerification": true }
+  ],
+  "medicationTemplates": [
+    { "id": "med-template-anticoagulant", "drugClass": "anticoagulant", "status": "staff-approved-required", "wording": "[Insert coordinator-approved wording here before use.]" }
+  ]
+}

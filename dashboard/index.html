@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f4" />
+    <title>ReadyFor | Surgery readiness</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="ReadyFor home">
+          <span class="brand-mark">R</span><span>readyfor</span>
+        </a>
+        <div class="workspace-label">CARE COORDINATION</div>
+        <nav aria-label="Main navigation">
+          <a class="nav-link active" href="#surgeries"><span class="nav-icon">▦</span> Surgeries <span class="nav-count" id="nav-count">3</span></a>
+          <a class="nav-link" href="#tasks"><span class="nav-icon">✓</span> My tasks <span class="nav-count muted">4</span></a>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="demo-label"><span class="pulse"></span> DEMO ENVIRONMENT</div>
+          <div class="user-card"><div class="avatar">JD</div><div><strong>Jordan Davis</strong><small>Care coordinator</small></div><span class="more">···</span></div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar"><div class="breadcrumbs">Care coordination <span>/</span> Surgeries</div><div class="top-actions"><span class="today" id="today"></span><button class="icon-button" aria-label="Notifications">♧<i></i></button></div></header>
+        <section class="page-heading">
+          <div><div class="eyebrow">MONDAY, OCTOBER 5, 2026</div><h1>Good morning, Jordan <span>✳</span></h1><p>Here’s what needs your attention today.</p></div>
+          <button class="primary-button" id="add-surgery"><span>＋</span> Add surgery</button>
+        </section>
+
+        <section class="summary-grid" aria-label="Surgery overview">
+          <article class="summary-card"><div class="summary-top"><span>Upcoming surgeries</span><span class="summary-icon blue">▦</span></div><strong id="total-count">3</strong><small>Next 14 days</small></article>
+          <article class="summary-card"><div class="summary-top"><span>Need attention</span><span class="summary-icon amber">!</span></div><strong id="attention-count">2</strong><small>Open blockers to resolve</small></article>
+          <article class="summary-card"><div class="summary-top"><span>Ready for surgery</span><span class="summary-icon green">✓</span></div><strong id="ready-count">1</strong><small>All requirements verified</small></article>
+        </section>
+
+        <section class="list-section" id="surgeries">
+          <div class="section-heading"><div><h2>Upcoming surgeries</h2><p>Review readiness and clear blockers before surgery day.</p></div><button class="filter-button">All surgeries <span>⌄</span></button></div>
+          <div class="surgery-list" id="surgery-list" aria-live="polite"></div>
+          <div class="demo-note"><span>ⓘ</span> Synthetic demo data · Readiness is rules-based · Staff approval required</div>
+        </section>
+
+        <footer>ReadyFor <span>·</span> Helping care teams get ahead of surgery day</footer>
+      </main>
+
+      <aside class="detail-panel" id="detail-panel" aria-label="Selected surgery details"></aside>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
