@@ -9,7 +9,7 @@ if (Bun.env.DASHBOARD_PROVIDER === 'mock' && !demoMode) throw new Error('Mock mo
 const authUrl = Bun.env.NEON_AUTH_BASE_URL;
 const cookieSecret = Bun.env.NEON_AUTH_COOKIE_SECRET;
 const coreUrl = Bun.env.READYFOR_CORE_URL ?? Bun.env.CORE_URL ?? 'http://localhost:8787';
-const providerConfigured = Bun.env.STAFF_AUTH_ENABLED === '1' && Boolean(authUrl) && Boolean(cookieSecret && cookieSecret.length >= 32);
+const providerConfigured = Boolean(authUrl) && Boolean(cookieSecret && cookieSecret.length >= 32);
 const authConfigured = providerConfigured && await coreSupportsStaffAuth(coreUrl);
 if (authUrl && new URL(authUrl).protocol !== 'https:') throw new Error('Neon Auth requires an HTTPS upstream URL.');
 const gateway = createGateway({ origin, enabled: authConfigured, authUrl, cookieSecret,

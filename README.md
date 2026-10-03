@@ -23,29 +23,28 @@ cd ..
 bun run dashboard
 ```
 
-Open [http://localhost:4173](http://localhost:4173). This staff-onboarding branch shows a configuration screen until Neon Auth and core authorization are connected. To view the local synthetic dashboard while that integration is pending, run `DASHBOARD_PROVIDER=mock bun run dashboard`. Mock mode is explicit, limited to localhost outside production, and does not change the core or Neon.
+Open [http://localhost:4173](http://localhost:4173). The dashboard requires Neon Auth and an allowlisted staff account before loading surgery data. For an explicit local synthetic preview, use `DASHBOARD_PROVIDER=mock bun run dashboard` outside production.
 
-## Staff signup integration status
+## Staff sign-in and roles
 
-This branch prepares invitation signup, email-code verification, sign-in, password recovery, pending access, a short staff introduction, and administrator-generated invitation links. Patients continue through iMessage. Invitations are links for an administrator to share; the dashboard does not send invitation emails.
+`neon.ts` declares `auth: true`. Enable the provider and pull its branch URLs:
 
-The managed Neon SDK is pinned in `dashboard/package.json`. Provider requests use the same-origin `/auth/provider/` gateway; core requests use `/api/` with a short-lived bearer JWT. The client does not persist JWTs in browser storage. Evidence images are fetched with authorization and displayed through temporary blob URLs. The gateway checks request origins, restricts routes, bounds bodies, and limits account writes per client address.
+```sh
+neon deploy
+neon env pull --service auth --file .env
+```
 
-**Not yet connected:** the shared core contract, membership/invitation tables, server-side JWT/role checks, initial admin bootstrap, and Neon Auth provisioning. The required API and validation checklist are in [dashboard/auth-contract.md](dashboard/auth-contract.md). The existing core still has no authentication; this dashboard preparation does not secure its direct port. Keep the core local and use synthetic data until server authorization is implemented.
+Keep keys in the ignored local `.env`. `NEON_AUTH_BASE_URL` and `NEON_AUTH_JWKS_URL` come from Neon. Set `STAFF_ALLOWLIST` as `email,role,Name[,asiSender]`, with entries separated by semicolons. Email matches require verification; creating a Neon account alone grants no access. Assign the initial owner the `admin` role. Set `AUTH_REQUIRED=1` so startup refuses to run without auth.
 
-Once the core extension is implemented, configure these locally without posting credentials in chat:
+Generate separate `IMESSAGE_SERVICE_TOKEN` and `AGENT_SERVICE_TOKEN` locally (`openssl rand -hex 32`), and give each service only its own token. The agent's local configuration must use the same `AGENT_SERVICE_TOKEN` as the core. Generate `NEON_AUTH_COOKIE_SECRET` of at least 32 characters for the managed SDK's signed session cache. Never paste these values into chat or commit them.
 
-| Variable | Purpose |
-| --- | --- |
-| `NEON_AUTH_BASE_URL` | Managed Auth URL for the selected Neon branch |
-| `NEON_AUTH_COOKIE_SECRET` | Random local secret of at least 32 characters for the official SDK's session cache |
-| `DASHBOARD_ORIGIN` | Exact browser origin, defaults to `http://localhost:4173` |
-| `READYFOR_CORE_URL` | Core upstream, defaults to `http://localhost:8787` |
-| `STAFF_AUTH_ENABLED=1` | Explicit activation after core authorization is ready |
+The dashboard uses `@neondatabase/auth` for signup, email-code verification, sign-in, password recovery and signout. It calls the core's `GET /me` to show the server-resolved staff name and role. Coordinators can act on logistics and instructions; lab, medication and health actions require nurse, surgeon or admin. Reset requires admin. Server checks remain authoritative.
 
-The dashboard also requires the core health response to advertise the implemented auth contract. A configured Neon provider alone cannot activate staff mode against the inherited unauthenticated core. The first administrator email is still to be selected; never grant admin to the first arbitrary signup. Configure the exact dashboard origin in Neon Auth's trusted origins. Managed verification and password-recovery emails require provider setup; live delivery has not been tested.
+Provider requests use the same-origin `/auth/provider/` gateway and core requests use `/api/`. A fresh JWT is obtained for every call; 401 triggers one refresh/retry, then returns the user to sign-in. 403 is shown without retry. JWTs are not persisted in browser storage. Lab reports are fetched with the token and displayed using temporary blob URLs. Client-provided audit actors are omitted.
 
-Validate this branch with `bun test`, `bun run typecheck`, `bun run --cwd dashboard typecheck`, and `bun run seed:check`. Gateway rate limiting is per process; a deployment with multiple dashboard instances needs a shared limiter or ingress rate limits.
+Register the exact dashboard origin as a trusted Neon Auth domain (`neon neon-auth domain add http://localhost:4173`) and set `CORS_ORIGINS` when using a different browser origin. `DASHBOARD_ORIGIN` defaults to `http://localhost:4173`; `READYFOR_CORE_URL` defaults to `http://localhost:8787`. The dashboard verifies that core health reports `auth: "neon"` before enabling staff login. Public self-signup, invitation management and onboarding tables are separate future work; this version's permissions use the local allowlist.
+
+Validate with `bun test`, `bun run typecheck`, `bun run --cwd dashboard typecheck`, `bun run seed:check`, and the agent's offline auth tests. Account rate limits are per dashboard process; multiple instances need shared or ingress limits. Live sign-in and verification require the user to create or enter their own password in the browser.
 
 Use **Reset demo** to reload the synthetic surgeries, then open Harriet’s surgery and select **Run record check**. Reset clears all current demo records in the configured database before reloading the fixture; with a `DATABASE_URL`, use this only on the demo database. The record check creates the readiness requirements from FinchNode/RxClass or their offline fixtures.
 
@@ -77,9 +76,9 @@ Set a private, stable `UAGENT_SEED` in `agent/.env`. `READYFOR_CORE_URL` default
 python -m readyfor_agent
 ```
 
-The agent uses Fetch.ai’s Chat Protocol. It can report surgeries at risk this week, fetch a patient’s documented readiness brief, and stage task creation or requirement verification for explicit chat confirmation. It calls the documented `/surgeries`, `/surgeries/:id/brief`, `/tasks`, and `/requirements/:id/actions` routes. Readiness remains in the core rules, and the agent does not provide clinical advice.
+The agent uses Fetch.ai’s Chat Protocol and sends its service token plus the incoming ASI:One sender on every request. It can report surgeries at risk this week, fetch a patient’s documented readiness brief, and stage task creation or requirement verification for explicit chat confirmation. It calls the documented `/surgeries`, `/surgeries/:id/brief`, `/tasks`, and `/requirements/:id/actions` routes. Readiness remains in the core rules, and the agent does not provide clinical advice.
 
-For ASI:One, open the Inspector URL printed by the agent and connect it to a mailbox through Agentverse. The mailbox receives ASI:One messages without exposing the agent’s local port. The core URL must be reachable by the agent process; keep the agent seed and any account credentials out of Git and out of chat.
+For ASI:One, open the Inspector URL printed by the agent and connect it to a mailbox through Agentverse. The mailbox receives ASI:One messages without exposing the agent’s local port. Link the incoming sender to a staff entry in `STAFF_ALLOWLIST` before reads or writes will be permitted. Send a greeting through ASI:One and read the agent's `ReadyFor chat sender` log to obtain that address; it is not ReadyFor's own address. The core URL must be reachable by the agent process; keep the agent seed and any account credentials out of Git and out of chat.
 
 ## Photon and environment
 

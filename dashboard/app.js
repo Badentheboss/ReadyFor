@@ -1,10 +1,9 @@
 import { createDashboardProvider } from './provider.js';
-import { initStaffAccess, getAccessToken } from './auth.js';
+import { initStaffAccess, getAccessToken, hasStaffAccess, requireSignIn } from './auth.js';
 
 const config = window.READYFOR_CONFIG ?? { provider: 'core', apiBaseUrl: 'http://localhost:8787' };
 const staff = await initStaffAccess();
-const actor = `${staff.membership.role}:${staff.user.name}`;
-const provider = createDashboardProvider({ ...config, actor, getAccessToken });
+const provider = createDashboardProvider({ ...config, getAccessToken, onUnauthorized: requireSignIn });
 const clinicalReviewer = staff.demo || ['admin', 'nurse', 'surgeon'].includes(staff.membership.role);
 const labels = { 'at-risk': 'At risk', attention: 'Needs attention', ready: 'Ready' };
 let surgeries = [];
@@ -63,7 +62,7 @@ function requirementMarkup(requirement) {
   } else if (resolved && requirement.status !== 'satisfied') {
     actions = `<button class="text-action" data-action="reopen" data-id="${escapeHtml(requirement.id)}">Reopen</button>`;
   }
-  if (!clinicalReviewer && requirement.kind !== 'logistics') actions = '<small>Clinical staff review required</small>';
+  if (!clinicalReviewer && ['lab', 'medication', 'health'].includes(requirement.kind)) actions = '<small>Clinical staff review required</small>';
 
   const source = requirement.source?.detail ? `<p class="source-detail"><strong>Source:</strong> ${escapeHtml(requirement.source.detail)}</p>` : '';
   const evidence = requirement.evidence ? `<div class="evidence-box"><strong>${escapeHtml(requirement.evidence.summary)}</strong>${requirement.evidence.checks?.length ? `<ul>${requirement.evidence.checks.map((check) => `<li class="${check.ok ? 'check-ok' : 'check-fail'}">${check.ok ? '✓' : '!'} ${escapeHtml(check.label)} · ${escapeHtml(check.detail)}</li>`).join('')}</ul>` : ''}${requirement.evidence.documentId && provider.documentBlob ? `<img class="lab-preview" alt="Synthetic lab report evidence" data-document-id="${escapeHtml(requirement.evidence.documentId)}" hidden />` : ''}</div>` : '';
@@ -173,7 +172,7 @@ async function resolveRequirement(requirementId, actionKey) {
     if (!note?.trim()) return;
   }
   try {
-    await provider.resolveRequirement(requirementId, action, actor, note?.trim());
+    await provider.resolveRequirement(requirementId, action, undefined, note?.trim());
     await refreshAfterMutation(action === 'approve_template' ? 'Staff-approved template queued for the patient.' : `Requirement ${action.replace('_', ' ')} recorded.`);
   } catch (error) { notify(error.message); }
 }
@@ -242,4 +241,4 @@ document.querySelector('#reset-demo').addEventListener('click', async () => {
 });
 
 loadList({ preserveSelection: false });
-if (provider.mode === 'core') setInterval(() => loadList(), 3000);
+if (provider.mode === 'core') setInterval(() => { if (hasStaffAccess()) loadList(); }, 3000);

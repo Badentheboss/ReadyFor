@@ -114,10 +114,10 @@ async def coordinator_reply(
         if lowered in {"confirm", "yes", "confirm it", "do it", "approve"}:
             pending.pop(sender, None)
             if queued["action"] == "verify":
-                await core.verify_requirement(queued["requirement_id"])
+                await core.verify_requirement(queued["requirement_id"], sender=sender)
                 return f"Verified “{queued['title']}” for {queued['patient']}. The core recalculated readiness."
             result = await core.create_task(
-                queued["surgery_id"], queued["title"], queued["owner"], queued["detail"]
+                queued["surgery_id"], queued["title"], queued["owner"], queued["detail"], sender=sender
             )
             task = result.get("task", {})
             return f"Assigned “{task.get('title', queued['title'])}” to {queued['owner']}."
@@ -126,7 +126,7 @@ async def coordinator_reply(
             return "Okay, I did not change anything."
         return "I have a change waiting for confirmation. Reply CONFIRM to apply it, or CANCEL to discard it."
 
-    surgeries = await core.list_surgeries()
+    surgeries = await core.list_surgeries(sender=sender)
     if any(phrase in lowered for phrase in ("at risk", "risk this week", "what's urgent", "what is urgent")):
         return at_risk_summary(surgeries)
 
@@ -134,12 +134,12 @@ async def coordinator_reply(
     if any(word in lowered for word in ("blocking", "blocker", "brief", "readiness", "what is happening")):
         if not selected:
             return "Which patient or surgery should I check? Try a patient name, such as Harriet."
-        return await core.surgery_brief(surgery_id(selected))
+        return await core.surgery_brief(surgery_id(selected), sender=sender)
 
     if any(word in lowered for word in ("verify", "confirm requirement")):
         if not selected:
             return "Which patient's requirement should I verify? Include the patient's name."
-        detail = await core.surgery_detail(surgery_id(selected))
+        detail = await core.surgery_detail(surgery_id(selected), sender=sender)
         requirement = requirement_match(detail.get("requirements", []), text)
         if not requirement:
             return "I couldn't identify one open requirement from that message. Include a requirement name, such as ‘verify pre-op blood work for Harriet’."
@@ -167,13 +167,15 @@ async def coordinator_reply(
         return f"I can assign “{title}” to the {owner} for {surgery_name(selected)}. Reply CONFIRM to create the task, or CANCEL."
 
     if selected:
-        return await core.surgery_brief(surgery_id(selected))
+        return await core.surgery_brief(surgery_id(selected), sender=sender)
     return "Ask what is at risk this week, what is blocking a patient's surgery, or ask me to assign a follow-up."
 
 
 def build_agent() -> Agent:
     settings = load_settings()
-    core = ReadyForCoreClient(settings.core_url, settings.core_timeout_seconds)
+    core = ReadyForCoreClient(
+        settings.core_url, settings.service_token, settings.core_timeout_seconds
+    )
     pending: dict[str, dict] = {}
     coordinator_chat = Protocol(spec=chat_protocol_spec)
     agent = Agent(
@@ -187,6 +189,7 @@ def build_agent() -> Agent:
 
     @coordinator_chat.on_message(ChatMessage)
     async def handle_chat(ctx: Context, sender: str, message: ChatMessage) -> None:
+        ctx.logger.info("ReadyFor chat sender: %s", sender)
         await ctx.send(
             sender,
             ChatAcknowledgement(

@@ -1,9 +1,10 @@
 """Environment-backed configuration for the coordinator agent."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 
 from dotenv import load_dotenv
+from readyfor_agent.client import validate_service_token
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class Settings:
     port: int
     core_url: str | None
     core_timeout_seconds: float
+    service_token: str = field(repr=False)
 
 
 def load_settings() -> Settings:
@@ -35,10 +37,12 @@ def load_settings() -> Settings:
         raise ValueError("READYFOR_CORE_TIMEOUT_SECONDS must be greater than zero.")
 
     core_url = os.getenv("READYFOR_CORE_URL", "").strip().rstrip("/") or None
+    service_token = validate_service_token(os.getenv("AGENT_SERVICE_TOKEN"))
     return Settings(
         seed=seed,
         name=os.getenv("UAGENT_NAME", "readyfor-coordinator").strip(),
         port=port,
         core_url=core_url,
         core_timeout_seconds=timeout,
+        service_token=service_token,
     )

@@ -15,8 +15,8 @@ export async function coreSupportsStaffAuth(coreUrl: string, coreFetch: FetchTra
     healthUrl.pathname = '/health';
     const response = await coreFetch(healthUrl, { redirect: 'manual', signal: AbortSignal.timeout(5_000) });
     if (!response.ok) return false;
-    const health = await response.json() as { auth?: { enforced?: boolean; provider?: string; contractVersion?: number } };
-    return health.auth?.enforced === true && health.auth.provider === 'neon' && health.auth.contractVersion === 1;
+    const health = await response.json() as { auth?: string };
+    return health.auth === 'neon';
   } catch { return false; }
 }
 
@@ -75,20 +75,18 @@ export function createGateway(config: GatewayConfig, coreFetch: FetchTransport =
       return failure(415, 'unsupported_media_type', 'Use a JSON request.');
     }
     const path = provider ? url.pathname.slice('/auth/provider/'.length) : url.pathname.slice('/api'.length);
-    const publicCore = (request.method === 'GET' && /^\/auth\/invitations\/[A-Za-z0-9_-]{40,100}$/.test(path))
-      || (request.method === 'POST' && path === '/auth/access-requests');
     const routeAllowed = provider ? providerRoutes[path] === request.method :
-      publicCore || /^\/auth\/(me|bootstrap|invitations|onboarding)$/.test(path)
-      || /^\/auth\/invitations\/[A-Za-z0-9_-]{40,100}\/accept$/.test(path)
-      || /^\/(health|surgeries|tasks|demo\/reset|messages\/inbound)$/.test(path)
-      || /^\/surgeries\/[A-Za-z0-9_-]+(\/(check|brief))?$/.test(path)
-      || /^\/(tasks|requirements)\/[A-Za-z0-9_-]+\/actions$/.test(path)
-      || /^\/documents\/[A-Za-z0-9_-]+\/content$/.test(path);
+      request.method === 'GET' ? /^\/(me|health|surgeries)$/.test(path)
+        || /^\/surgeries\/[A-Za-z0-9_-]+(\/brief)?$/.test(path)
+        || /^\/documents\/[A-Za-z0-9_-]+\/content$/.test(path)
+        : /^\/(tasks|demo\/reset|messages\/inbound)$/.test(path)
+          || /^\/surgeries\/[A-Za-z0-9_-]+\/check$/.test(path)
+          || /^\/(tasks|requirements)\/[A-Za-z0-9_-]+\/actions$/.test(path);
     if (!routeAllowed) return failure(404, 'not_found', 'Not found.');
-    if (!provider && !publicCore && !/^Bearer [^\s]+$/.test(request.headers.get('authorization') ?? '')) {
+    if (!provider && !/^Bearer [^\s]+$/.test(request.headers.get('authorization') ?? '')) {
       return failure(401, 'unauthenticated', 'Sign in to continue.');
     }
-    if (request.method === 'POST' && (provider || publicCore)) {
+    if (request.method === 'POST' && provider) {
       const now = Date.now();
       for (const [key, value] of limits) if (value.until <= now) limits.delete(key);
       const rateKey = `${clientAddress}:${provider ? 'auth' : 'access'}`;

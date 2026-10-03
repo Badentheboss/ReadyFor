@@ -5,15 +5,6 @@ function requestError(body, status) {
   return new Error(message);
 }
 
-async function requestJson(baseUrl, path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: { ...(options.body ? { 'content-type': 'application/json' } : {}), ...options.headers },
-  });
-  const body = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw requestError(body, response.status);
-  return body;
-}
 
 function ageFromBirthDate(birthDate) {
   if (!birthDate) return null;
@@ -113,14 +104,27 @@ function mapDetail(detail) {
 
 function createCoreProvider(baseUrl, config = {}) {
   const base = baseUrl || DEFAULT_API_URL;
-  const authHeaders = async () => {
-    const token = await config.getAccessToken?.();
-    return token ? { authorization: `Bearer ${token}` } : {};
+  const authorizedFetch = async (path, options = {}) => {
+    const send = async (refresh = false) => {
+      const token = await config.getAccessToken?.(refresh);
+      return fetch(`${base}${path}`, { ...options, headers: {
+        ...(options.body ? { 'content-type': 'application/json' } : {}),
+        ...options.headers, ...(token ? { authorization: `Bearer ${token}` } : {}),
+      } });
+    };
+    let response = await send();
+    if (response.status === 401 && config.getAccessToken) response = await send(true);
+    if (response.status === 401) config.onUnauthorized?.();
+    return response;
   };
-  const json = async (path, method = 'GET', body) => requestJson(base, path, {
-    method, headers: await authHeaders(),
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  const json = async (path, method = 'GET', body) => {
+    const response = await authorizedFetch(path, { method,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    const result = response.status === 204 ? null : await response.json().catch(() => null);
+    if (!response.ok) throw requestError(result, response.status);
+    return result;
+  };
   const listSurgeries = async () => {
     const result = await json('/surgeries');
     return result.surgeries.map(mapSummary);
@@ -137,17 +141,17 @@ function createCoreProvider(baseUrl, config = {}) {
     },
     async resolveRequirement(requirementId, action, actor, note) {
       await json(`/requirements/${encodeURIComponent(requirementId)}/actions`, 'POST', {
-        action, actor, ...(note ? { note } : {}),
+        action, ...(note ? { note } : {}),
       });
     },
     async createTask(surgeryId, title, owner, detail) {
       return json('/tasks', 'POST', {
-        surgeryId, title, owner, detail, actor: config.actor ?? 'staff', origin: 'staff',
+        surgeryId, title, owner, detail, origin: 'staff',
       });
     },
     async completeTask(taskId) {
       return json(`/tasks/${encodeURIComponent(taskId)}/actions`, 'POST', {
-        action: 'complete', actor: config.actor ?? 'staff',
+        action: 'complete',
       });
     },
     async sendPatientMessage(surgeryId, body, attachment) {
@@ -160,7 +164,7 @@ function createCoreProvider(baseUrl, config = {}) {
     health: () => json('/health'),
     documentUrl: () => null,
     async documentBlob(documentId) {
-      const response = await fetch(`${base}/documents/${encodeURIComponent(documentId)}/content`, { headers: await authHeaders() });
+      const response = await authorizedFetch(`/documents/${encodeURIComponent(documentId)}/content`);
       if (!response.ok) throw new Error('Could not load the evidence document.');
       return response.blob();
     },

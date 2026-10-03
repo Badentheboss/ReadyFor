@@ -3,38 +3,49 @@ import { createAuthClient } from '@neondatabase/auth';
 const config = window.READYFOR_CONFIG ?? {};
 const root = document.querySelector('#auth-root');
 const shell = document.querySelector('.app-shell');
-const invitationToken = new URL(location.href).searchParams.get('invite');
 let client;
-let identity;
-let invitation;
+let staff;
 let currentEmail = '';
 let resolveAccess;
 let busy = false;
+let authenticationNeeded = false;
+let accessGranted = false;
 
 const escape = (value = '') => String(value).replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character]);
 const roleLabel = (role) => ({ admin: 'Clinic administrator', coordinator: 'Care coordinator', nurse: 'Nurse', surgeon: 'Surgeon' })[role] ?? role;
 
-export async function getAccessToken() {
-  if (!client) return null;
-  const { data, error } = await client.token();
-  if (error || !data?.token) throw new Error('Your session has expired. Sign in again to continue.');
-  return data.token;
+export async function getAccessToken(refresh = false) {
+  if (config.demoMode) return null;
+  if (!client || authenticationNeeded) throw new Error('Sign in to continue.');
+  try {
+    const { data, error } = await client.token(refresh ? { fetchOptions: { headers: { 'X-Force-Fetch': '1' } } } : undefined);
+    if (error || !data?.token) throw new Error('Your session has expired. Sign in again to continue.');
+    return data.token;
+  } catch (error) { requireSignIn(); throw error; }
 }
 
-async function api(path, body, { authenticated = true } = {}) {
-  const token = authenticated ? await getAccessToken() : null;
-  const response = await fetch(`${config.apiBaseUrl}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: {
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+export function requireSignIn() {
+  authenticationNeeded = true;
+  accountForm(false);
+  document.querySelector('.auth-copy').textContent = 'Your session has expired. Sign in again to continue.';
+}
+
+export function hasStaffAccess() { return config.demoMode || (Boolean(staff) && !authenticationNeeded); }
+
+async function api(path) {
+  const token = await getAccessToken();
+  let response = await fetch(`${config.apiBaseUrl}${path}`, { headers: { authorization: `Bearer ${token}` } });
+  if (response.status === 401) {
+    const refreshed = await getAccessToken(true);
+    response = await fetch(`${config.apiBaseUrl}${path}`, { headers: { authorization: `Bearer ${refreshed}` } });
+  }
   const result = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(result?.error?.message ?? 'We could not complete this request. Please try again.');
+  if (!response.ok) {
+    if (response.status === 401) requireSignIn();
+    throw Object.assign(new Error(result?.error?.message ?? 'We could not complete this request. Please try again.'), { status: response.status });
+  }
   return result;
 }
 
@@ -47,7 +58,7 @@ function frame(title, copy, contents) {
 function showError(error) {
   let target = document.querySelector('#auth-error');
   if (!target || root.hidden) {
-    frame('We could not complete sign-in', 'Refresh the page and try again. Your account does not grant access until staff membership is confirmed.', '<button class="primary-button" id="retry-signin">Try again</button>');
+    frame('We could not complete sign-in', 'Refresh the page and try again. Staff access must be confirmed before surgery records can be viewed.', '<button class="primary-button" id="retry-signin">Try again</button>');
     document.querySelector('#retry-signin').onclick = () => location.reload();
     target = document.querySelector('#auth-error');
   }
@@ -74,59 +85,54 @@ function checkResult(result) {
   if (result.error) throw new Error(result.error.message ?? 'Please check your details and try again.');
   return result.data;
 }
+const unverified = (error) => ['EMAIL_NOT_VERIFIED', 'email_not_confirmed'].includes(error?.code);
 
 function accountForm(signUp = false) {
-  const email = invitation?.email ?? currentEmail;
-  frame(signUp ? 'Join your care team' : 'Welcome back', invitation
-    ? `${invitation.clinicName} invited you to join as ${roleLabel(invitation.role).toLowerCase()}.`
+  frame(signUp ? 'Create your staff account' : 'Welcome back', signUp
+    ? 'Create an account and verify your work email. Your clinic administrator must add you to the staff list before you can view surgeries.'
     : 'Sign in with your staff account. Patient replies continue through iMessage.',
   `<form id="auth-form" class="auth-form">${signUp ? '<label>Your name<input name="name" autocomplete="name" required maxlength="100" /></label>' : ''}
-    <label>Work email<input name="email" type="email" autocomplete="email" value="${escape(email)}" ${invitation ? 'readonly' : ''} required maxlength="254" /></label>
+    <label>Work email<input name="email" type="email" autocomplete="email" value="${escape(currentEmail)}" required maxlength="254" /></label>
     <label>Password<input name="password" type="password" autocomplete="${signUp ? 'new-password' : 'current-password'}" minlength="8" maxlength="128" required /></label>
     <button class="primary-button auth-submit" type="submit">${signUp ? 'Create account' : 'Sign in'}</button></form>
     <button class="auth-link" id="switch-account">${signUp ? 'Already have an account? Sign in' : 'Create a staff account'}</button>
-    ${!signUp ? '<button class="auth-link" id="recover-password">Forgot your password?</button>' : ''}
-    ${!invitation ? '<button class="auth-link" id="request-access">Need an invitation? Request access</button>' : ''}`);
+    ${!signUp ? '<button class="auth-link" id="recover-password">Forgot your password?</button>' : ''}`);
   formHandler(async (values) => {
     currentEmail = values.get('email').trim();
     if (signUp) {
       checkResult(await client.signUp.email({ email: currentEmail, password: values.get('password'), name: values.get('name').trim() }));
-      await verificationForm();
+      await verificationForm(true);
     } else {
       let result;
       try { result = await client.signIn.email({ email: currentEmail, password: values.get('password') }); }
-      catch (error) {
-        if (['EMAIL_NOT_VERIFIED', 'email_not_confirmed'].includes(error.code)) { await verificationForm(); return; }
-        throw error;
-      }
-      if (['EMAIL_NOT_VERIFIED', 'email_not_confirmed'].includes(result.error?.code)) { await verificationForm(); return; }
+      catch (error) { if (unverified(error)) { await verificationForm(true); return; } throw error; }
+      if (unverified(result.error)) { await verificationForm(true); return; }
       checkResult(result);
+      authenticationNeeded = false;
       await restoreAccess();
     }
   });
   document.querySelector('#switch-account').onclick = () => accountForm(!signUp);
-  document.querySelector('#request-access')?.addEventListener('click', requestAccessForm);
   document.querySelector('#recover-password')?.addEventListener('click', recoveryForm);
 }
 
-async function verificationForm() {
-  frame('Verify your work email', `Enter the verification code sent to ${currentEmail}.`,
+async function verificationForm(sendCode = false) {
+  frame('Verify your work email', `Enter the verification code for ${currentEmail}.`,
     '<form id="auth-form" class="auth-form"><label>Verification code<input name="otp" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required /></label><button class="primary-button auth-submit" type="submit">Verify email</button></form><button class="auth-link" id="resend-code">Send a new code</button><button class="auth-link" id="back-signin">Back to sign in</button>');
+  const send = async () => checkResult(await client.emailOtp.sendVerificationOtp({ email: currentEmail, type: 'email-verification' }));
   formHandler(async (values) => {
     checkResult(await client.emailOtp.verifyEmail({ email: currentEmail, otp: values.get('otp') }));
     accountForm(false);
-    document.querySelector('.auth-copy').textContent = 'Email verified. Sign in to finish joining your team.';
+    document.querySelector('.auth-copy').textContent = 'Email verified. Sign in to continue.';
   });
   document.querySelector('#resend-code').onclick = async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
-    try {
-      checkResult(await client.emailOtp.sendVerificationOtp({ email: currentEmail, type: 'email-verification' }));
-      button.textContent = 'New code sent';
-    } catch (error) { showError(error); }
+    try { await send(); button.textContent = 'New code sent'; } catch (error) { showError(error); }
     finally { button.disabled = false; }
   };
   document.querySelector('#back-signin').onclick = () => accountForm(false);
+  if (sendCode) { try { await send(); } catch (error) { showError(error); } }
 }
 
 function recoveryForm() {
@@ -136,7 +142,7 @@ function recoveryForm() {
     currentEmail = values.get('email').trim();
     checkResult(await client.forgetPassword.emailOtp({ email: currentEmail }));
     frame('Choose a new password', 'If an account exists for that email, a recovery code has been sent.',
-      '<form id="auth-form" class="auth-form"><label>Recovery code<input name="otp" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" required /></label><label>New password<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required /></label><button class="primary-button auth-submit" type="submit">Reset password</button></form>');
+      '<form id="auth-form" class="auth-form"><label>Recovery code<input name="otp" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required /></label><label>New password<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required /></label><button class="primary-button auth-submit" type="submit">Reset password</button></form>');
     formHandler(async (newValues) => {
       checkResult(await client.emailOtp.resetPassword({ email: currentEmail, otp: newValues.get('otp'), password: newValues.get('password') }));
       accountForm(false);
@@ -146,73 +152,45 @@ function recoveryForm() {
   document.querySelector('#back-signin').onclick = () => accountForm(false);
 }
 
-function requestAccessForm() {
-  frame('Request a staff invitation', 'Your clinic administrator will review your request. Submitting it does not grant access to surgery records.',
-    '<form id="auth-form" class="auth-form"><label>Your name<input name="name" autocomplete="name" maxlength="100" required /></label><label>Work email<input name="email" type="email" autocomplete="email" maxlength="254" required /></label><label>Message to the administrator<textarea name="note" maxlength="500" rows="3"></textarea></label><button class="primary-button auth-submit" type="submit">Request access</button></form><button class="auth-link" id="back-signin">Back to sign in</button>');
-  formHandler(async (values) => {
-    await api('/auth/access-requests', { name: values.get('name').trim(), email: values.get('email').trim(), note: values.get('note').trim() }, { authenticated: false });
-    frame('Request received', 'Ask your clinic administrator to review your request and send an invitation.', '<button class="primary-button" id="back-signin">Back to sign in</button>');
-    document.querySelector('#back-signin').onclick = () => accountForm(false);
-  });
-  document.querySelector('#back-signin').onclick = () => accountForm(false);
-}
-
 async function restoreAccess() {
   const session = checkResult(await client.getSession());
-  if (!session?.user) { accountForm(Boolean(invitation)); return; }
+  if (!session?.user) { accountForm(false); return; }
   currentEmail = session.user.email;
-  if (invitation && currentEmail.toLowerCase() !== invitation.email.toLowerCase()) {
-    frame('Use your invited work email', `You are signed in as ${currentEmail}, but this invitation is for ${invitation.email}. Sign out, then use the invited account.`, '<button class="primary-button" id="sign-out">Sign out</button>');
+  if (!session.user.emailVerified) { await verificationForm(true); return; }
+  let caller;
+  try { caller = await api('/me'); }
+  catch (error) {
+    if (error.status !== 403) throw error;
+    frame('Your account is ready', 'Your verified account needs to be added to the clinic staff list. Ask your administrator to approve this work email before you can view surgery records.', '<button class="primary-button" id="sign-out">Sign out</button>');
     document.querySelector('#sign-out').onclick = signOut;
     return;
   }
-  if (!session.user.emailVerified) { await verificationForm(); return; }
-  identity = await api('/auth/me');
-  if (invitation) {
-    await api(`/auth/invitations/${encodeURIComponent(invitationToken)}/accept`, {});
-    invitation = undefined;
-    history.replaceState(null, '', '/');
-    identity = await api('/auth/me');
-  }
-  if (!identity.membership) {
-    frame('Your account is ready', 'You need a staff invitation before you can view surgery records.',
-      `${identity.canBootstrap ? '<button class="primary-button" id="activate-clinic">Activate clinic administration</button>' : ''}<button class="auth-link" id="request-access">Request access</button><button class="auth-link" id="sign-out">Sign out</button>`);
-    document.querySelector('#activate-clinic')?.addEventListener('click', async () => {
-      try { await api('/auth/bootstrap', {}); await restoreAccess(); } catch (error) { showError(error); }
-    });
-    document.querySelector('#request-access').onclick = requestAccessForm;
-    document.querySelector('#sign-out').onclick = signOut;
-    return;
-  }
-  if (!identity.membership.onboardedAt) { orientation(); return; }
+  if (caller.auth !== 'neon' || caller.identity?.kind !== 'staff') throw new Error('The core service did not confirm staff access.');
+  staff = { user: { id: caller.identity.userId, name: caller.identity.name, email: currentEmail },
+    membership: { role: caller.identity.role }, actor: caller.actor };
   grantAccess();
 }
 
-function orientation() {
-  frame(`Welcome to ${identity.membership.clinicName}`, 'Three things to know before your first surgery review.',
-    '<ol class="orientation-list"><li><strong>Readiness follows rules.</strong><p>Ready, needs attention, and at risk reflect the current blockers and time before surgery.</p></li><li><strong>Evidence needs staff review.</strong><p>A patient photo can supply evidence. Verify its details before clearing a requirement.</p></li><li><strong>Your actions are accountable.</strong><p>Approvals and task changes record your signed-in identity. Medication wording comes from staff-approved templates.</p></li></ol><form id="auth-form"><button class="primary-button auth-submit" type="submit">Open my dashboard</button></form>');
-  formHandler(async () => { await api('/auth/onboarding', {}); grantAccess(); });
-}
-
 function grantAccess() {
+  if (accessGranted) { location.reload(); return; }
+  accessGranted = true;
   root.hidden = true;
   shell.hidden = false;
-  const name = identity.user.name || identity.user.email;
-  document.querySelector('.user-card strong').textContent = name;
-  document.querySelector('.user-card small').textContent = roleLabel(identity.membership.role);
-  document.querySelector('.avatar').textContent = name.split(/\s+/).map((word) => word[0]).slice(0, 2).join('').toUpperCase();
-  document.querySelector('.page-heading h1').textContent = `Welcome, ${name.split(' ')[0]}`;
+  document.querySelector('.user-card strong').textContent = staff.user.name;
+  document.querySelector('.user-card small').textContent = roleLabel(staff.membership.role);
+  document.querySelector('.avatar').textContent = staff.user.name.split(/\s+/).map((word) => word[0]).slice(0, 2).join('').toUpperCase();
+  document.querySelector('.page-heading h1').textContent = `Welcome, ${staff.user.name.split(' ')[0]}`;
   const signout = document.querySelector('#staff-signout');
   signout.hidden = false;
   signout.onclick = signOut;
-  const inviteButton = document.querySelector('#invite-staff');
-  inviteButton.hidden = identity.membership.role !== 'admin';
-  inviteButton.onclick = openStaffInvitation;
-  document.querySelector('#reset-demo').hidden = identity.membership.role !== 'admin';
-  resolveAccess(identity);
+  document.querySelector('#reset-demo').hidden = staff.membership.role !== 'admin';
+  resolveAccess(staff);
+  window.dispatchEvent(new CustomEvent('readyfor:staff-access', { detail: staff }));
 }
 
 async function signOut() {
+  authenticationNeeded = true;
+  shell.hidden = true;
   try { checkResult(await client.signOut()); location.assign('/'); } catch (error) { showError(error); }
 }
 
@@ -222,7 +200,8 @@ export function initStaffAccess() {
     if (config.demoMode) {
       root.hidden = true;
       shell.hidden = false;
-      resolveAccess({ user: { name: 'Jordan Davis', email: 'demo@example.invalid' }, membership: { role: 'admin' }, demo: true });
+      staff = { user: { name: 'Jordan Davis', email: 'demo@example.invalid' }, membership: { role: 'admin' }, demo: true };
+      resolveAccess(staff);
       return;
     }
     if (!config.authConfigured) {
@@ -231,30 +210,7 @@ export function initStaffAccess() {
     }
     frame('Checking staff access', 'Please wait while we restore your session.', '');
     client = createAuthClient(`${location.origin}/auth/provider`);
-    if (invitationToken) {
-      try { invitation = await api(`/auth/invitations/${encodeURIComponent(invitationToken)}`, undefined, { authenticated: false }); }
-      catch { frame('This invitation is unavailable', 'It may have expired or already been accepted. Ask your clinic administrator for a new invitation.', '<button class="primary-button" id="request-access">Request access</button>'); document.querySelector('#request-access').onclick = requestAccessForm; return; }
-    }
     await restoreAccess();
   })().catch(showError);
   return promise;
-}
-
-export async function openStaffInvitation() {
-  if (identity?.membership?.role !== 'admin') return;
-  frame('Invite a care-team member', 'Create an invitation link for the correct work email and role. Share the link directly with that colleague.',
-    '<form id="auth-form" class="auth-form"><label>Work email<input name="email" type="email" maxlength="254" required /></label><label>Staff role<select name="role"><option value="coordinator">Care coordinator</option><option value="nurse">Nurse</option><option value="surgeon">Surgeon</option><option value="admin">Clinic administrator</option></select></label><button class="primary-button auth-submit" type="submit">Create invitation</button></form><button class="auth-link" id="return-dashboard">Back to dashboard</button>');
-  document.querySelector('#return-dashboard').onclick = grantAccess;
-  formHandler(async (values) => {
-    const result = await api('/auth/invitations', { email: values.get('email').trim(), role: values.get('role') });
-    const link = new URL('/', location.origin);
-    link.searchParams.set('invite', result.token);
-    frame('Invitation ready', 'Copy this link and share it with your colleague. It expires in seven days.',
-      `<label class="auth-form">Invitation link<input readonly value="${escape(link.href)}" id="invitation-link" /></label><button class="primary-button" id="copy-invitation">Copy invitation</button><button class="auth-link" id="return-dashboard">Back to dashboard</button>`);
-    document.querySelector('#copy-invitation').onclick = async (event) => {
-      const button = event.currentTarget;
-      try { await navigator.clipboard.writeText(link.href); button.textContent = 'Copied'; } catch { document.querySelector('#invitation-link').select(); }
-    };
-    document.querySelector('#return-dashboard').onclick = grantAccess;
-  });
 }

@@ -6,7 +6,6 @@ const config: GatewayConfig = {
   origin: 'http://localhost:4173', coreUrl: 'http://localhost:8787',
   authUrl: 'https://auth.example.invalid/neondb/auth', cookieSecret: 'a'.repeat(32), enabled: true,
 };
-const invitation = 'b'.repeat(43);
 function request(path: string, options: RequestInit = {}) {
   return new Request(`${config.origin}${path}`, options);
 }
@@ -19,13 +18,12 @@ const fakeProvider: typeof handleAuthProxyRequest = async () => Response.json({ 
 
 describe('dashboard auth boundary', () => {
   test('auth is not enabled against the inherited unauthenticated core or an unavailable API', async () => {
-    for (const health of [{ ok: true }, { auth: { enforced: false, provider: 'neon', contractVersion: 1 } },
-      { auth: { enforced: true, provider: 'neon', contractVersion: 2 } }]) {
+    for (const health of [{ ok: true }, { auth: 'off' }, { auth: { enforced: true } }]) {
       expect(await coreSupportsStaffAuth(config.coreUrl, async () => Response.json(health))).toBe(false);
     }
     expect(await coreSupportsStaffAuth(config.coreUrl, async () => { throw new Error('unavailable'); })).toBe(false);
     expect(await coreSupportsStaffAuth(config.coreUrl, async () => Response.json({
-      auth: { enforced: true, provider: 'neon', contractVersion: 1 },
+      auth: 'neon',
     }))).toBe(true);
   });
   test('closed until explicitly enabled with provider and strong cookie secret', async () => {
@@ -54,14 +52,14 @@ describe('dashboard auth boundary', () => {
     expect((await gateway(post('/auth/provider/token'))).status).toBe(404);
     expect((await gateway(request('/auth/provider/get-session'))).status).toBe(200);
   });
-  test('clinical data requires a bearer token; only invite preview and access request are public', async () => {
+  test('every core route requires a bearer token and unsupported invite routes are absent', async () => {
     const gateway = createGateway(config, fakeFetch, fakeProvider);
-    for (const path of ['/api/surgeries', '/api/auth/me', '/api/documents/doc_1/content']) {
+    for (const path of ['/api/surgeries', '/api/me', '/api/documents/doc_1/content']) {
       expect((await gateway(request(path))).status).toBe(401);
     }
-    expect((await gateway(post('/api/auth/invitations'))).status).toBe(401);
-    expect((await gateway(request(`/api/auth/invitations/${invitation}`))).status).toBe(200);
-    expect((await gateway(post('/api/auth/access-requests'))).status).toBe(200);
+    expect((await gateway(post('/api/auth/invitations'))).status).toBe(404);
+    expect((await gateway(request('/api/auth/invitations/'+ 'b'.repeat(43)))).status).toBe(404);
+    expect((await gateway(post('/api/auth/access-requests'))).status).toBe(404);
   });
   test('limits login bursts per actual client address, ignoring spoofed forwarded address', async () => {
     const gateway = createGateway(config, fakeFetch, fakeProvider);
