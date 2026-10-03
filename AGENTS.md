@@ -1,11 +1,13 @@
 # readyfor — agent instructions
 
-This is a [Spectrum](https://photon.codes/docs/spectrum-ts) app, pinned to `spectrum-ts@^12.10.1`. The entry point is `src/index.ts`, which configures the imessage provider(s) and runs the echo loop.
+This is a [Spectrum](https://photon.codes/docs/spectrum-ts) app, pinned to `spectrum-ts@^12.10.1`. The iMessage entry point is `imessage/src/main.ts`, which connects Spectrum to the core service in `core/` over HTTP. `docs/contract.md` and `core/src/types.ts` define the API; read them before changing anything.
 
 ## Working in this project
 
-- Run the app with `bun start`.
-- Add providers by importing them in `src/index.ts` and listing them in the `Spectrum({ providers: [...] })` config.
+- Run the core with `bun start` (or `bun run dev` to reload on change) and the iMessage adapter with `bun run imessage`.
+- Run `bun test` and `bun run typecheck` before committing.
+- Folder ownership is in `docs/contract.md` section 1. Do not edit another owner's folder.
+- Spectrum providers are configured in `imessage/src/spectrum.ts`.
 - Outgoing message content uses the builders documented in the skill (text, attachment, voice, contact, richlink, poll, group, custom).
 
 ## Environment
