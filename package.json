@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "bun src/index.ts",
-    "dev": "bun --watch src/index.ts"
+    "dev": "bun --watch src/index.ts",
+    "seed:check": "bun db/seed/check.ts"
   },
   "dependencies": {
     "@neon/config": "^1.8.3",
