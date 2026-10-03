@@ -31,7 +31,7 @@ function secure(response: Response) {
   response.headers.set('x-content-type-options', 'nosniff');
   response.headers.set('referrer-policy', 'no-referrer');
   response.headers.set('x-frame-options', 'DENY');
-  response.headers.set('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  response.headers.set('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   if (Bun.env.NODE_ENV === 'production') response.headers.set('strict-transport-security', 'max-age=31536000');
   return response;
 }

@@ -3,242 +3,571 @@ import { initStaffAccess, getAccessToken, hasStaffAccess, requireSignIn } from '
 
 const config = window.READYFOR_CONFIG ?? { provider: 'core', apiBaseUrl: 'http://localhost:8787' };
 const staff = await initStaffAccess();
+const clinicalReviewer = ['admin', 'nurse', 'surgeon'].includes(staff.membership.role);
 const provider = createDashboardProvider({ ...config, getAccessToken, onUnauthorized: requireSignIn });
-const clinicalReviewer = staff.demo || ['admin', 'nurse', 'surgeon'].includes(staff.membership.role);
-const labels = { 'at-risk': 'At risk', attention: 'Needs attention', ready: 'Ready' };
-let surgeries = [];
-let selectedId = null;
-let selectedDetail = null;
-let toastTimer;
-let documentUrls = [];
-
-const list = document.querySelector('#surgery-list');
-const panel = document.querySelector('#detail-panel');
-const toast = document.querySelector('#toast');
-
-function escapeHtml(value = '') {
-  return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+const documentUrls = new Set();
+function releaseDocumentUrls() {
+  for (const url of documentUrls) URL.revokeObjectURL(url);
+  documentUrls.clear();
 }
-function statusClass(value) { return value === 'at-risk' ? 'status-risk' : value === 'ready' ? 'status-ready' : 'status-attention'; }
-function isResolved(status) { return ['satisfied', 'verified', 'waived', 'cleared'].includes(status); }
-function isOpenRequirement(requirement) { return requirement.blocking && ['open', 'evidence_received'].includes(requirement.status); }
-function openBlockers(surgery) { return surgery.blockers?.filter((blocker) => !blocker.cleared).length ?? 0; }
-function initials(value = '') { return value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join(''); }
+async function loadDocumentImages() {
+  for (const link of caseEl.querySelectorAll('[data-document-id]')) {
+    try {
+      const blob = await provider.documentBlob(link.dataset.documentId);
+      if (!link.isConnected || !hasStaffAccess()) continue;
+      const url = URL.createObjectURL(blob);
+      documentUrls.add(url);
+      link.href = url;
+      const img = link.querySelector('img');
+      img.src = url;
+      img.hidden = false;
+      link.querySelector('span').hidden = true;
+    } catch {
+      if (link.isConnected) link.querySelector('span').textContent = 'Report unavailable';
+    }
+  }
+}
+window.addEventListener('pagehide', releaseDocumentUrls);
+
+const LEVEL = { 'at-risk': 'risk', attention: 'attention', ready: 'ready' };
+const LEVEL_LABEL = { risk: 'At risk', attention: 'Needs attention', ready: 'Ready' };
+const FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'risk', label: 'At risk' },
+  { key: 'attention', label: 'Needs attention' },
+  { key: 'ready', label: 'Ready' },
+];
+const SYSTEM_LABEL = { finchnode: 'FinchNode', rxclass: 'RxClass', patient_message: 'Patient', document: 'Document', staff: 'Staff', rule: 'Rule' };
+const CLEARED = ['satisfied', 'verified', 'waived'];
+
+const state = {
+  surgeries: [],
+  selectedId: null,
+  detail: null,
+  filter: 'all',
+  tab: 'checklist',
+  composer: null, // { id, action } for the requirement note being written
+  loaded: false,
+};
+let detailRequest = 0;
+
+const $ = (selector) => document.querySelector(selector);
+const listEl = $('#surgery-list');
+const caseEl = $('#case');
+const runwayEl = $('#runway');
+
+// ---------- Helpers ----------
+function esc(value = '') {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const levelOf = (surgery) => LEVEL[surgery.readiness] ?? 'attention';
+const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+
+function dayAt(offset) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offset);
+  return d;
+}
+function relativeTime(iso) {
+  if (!iso) return '';
+  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 45) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function clockTime(iso) {
+  return iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+}
+function kindIcon(kind) {
+  return icon(['lab', 'medication', 'logistics', 'instruction', 'health'].includes(kind) ? kind : 'instruction');
+}
+
+// ---------- Board ----------
+function renderSummary() {
+  const counts = { risk: 0, attention: 0, ready: 0 };
+  state.surgeries.forEach((s) => counts[levelOf(s)]++);
+  const total = state.surgeries.length;
+  const summary = $('#board-summary');
+  if (!state.loaded) { summary.textContent = 'Loading surgeries…'; return; }
+  if (!total) { summary.textContent = 'No surgeries scheduled.'; return; }
+  const parts = [];
+  if (counts.risk) parts.push(`<b class="risk">${counts.risk} at risk</b>`);
+  if (counts.attention) parts.push(`<b>${counts.attention}</b> need${counts.attention === 1 ? 's' : ''} attention`);
+  if (counts.ready) parts.push(`<b>${counts.ready}</b> ready`);
+  summary.innerHTML = `${plural(total, 'surgery', 'surgeries')} in the next two weeks: ${parts.join(', ')}.`;
+}
+
+function renderRunway() {
+  const byDay = new Map();
+  state.surgeries.forEach((s) => {
+    if (typeof s.days !== 'number' || s.days > 13) return;
+    const list = byDay.get(s.days) ?? [];
+    list.push(s);
+    byDay.set(s.days, list);
+  });
+  runwayEl.innerHTML = Array.from({ length: 14 }, (_, offset) => {
+    const date = dayAt(offset);
+    const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+    const weekend = date.getDay() === 0 || date.getDay() === 6;
+    const markers = (byDay.get(offset) ?? []).map((s) => {
+      const level = levelOf(s);
+      return `<button class="marker ${level} ${s.id === state.selectedId ? 'selected' : ''}" data-select="${esc(s.id)}" title="${esc(s.name)} · ${LEVEL_LABEL[level]}" aria-label="${esc(s.name)}, ${esc(s.date)}, ${LEVEL_LABEL[level]}">${esc(s.initials)}</button>`;
+    }).join('');
+    return `<div class="day ${offset === 0 ? 'today' : ''} ${weekend ? 'weekend' : ''}">
+      <span class="day-label">${offset === 0 ? 'Today' : esc(weekday)}<b>${date.getDate()}</b></span>
+      <div class="day-slot">${markers}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderFilters() {
+  const counts = { all: state.surgeries.length, risk: 0, attention: 0, ready: 0 };
+  state.surgeries.forEach((s) => counts[levelOf(s)]++);
+  $('#filters').innerHTML = FILTERS.map((f) => `<button type="button" role="radio" aria-checked="${state.filter === f.key}" data-filter="${f.key}">${f.label}<span class="count">${counts[f.key]}</span></button>`).join('');
+}
 
 function renderList() {
-  list.innerHTML = surgeries.map((surgery) => {
-    const level = surgery.readiness;
-    const count = surgery.openCount ?? openBlockers(surgery);
-    const firstOpen = surgery.blockers.find((blocker) => !blocker.cleared);
-    return `<article class="surgery-card ${surgery.id === selectedId ? 'selected' : ''}" data-id="${escapeHtml(surgery.id)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(surgery.name)} surgery details">
-      <div class="card-main"><div class="patient-avatar">${escapeHtml(surgery.initials)}</div><div class="patient-info"><strong>${escapeHtml(surgery.name)}</strong><small>${surgery.age ?? '—'} · ${escapeHtml(surgery.procedure)}</small></div><div class="surgery-meta"><strong>${escapeHtml(surgery.date)}</strong><small>in ${surgery.days} days</small></div><span class="chevron">›</span></div>
-      <div class="card-bottom"><span class="status-pill ${statusClass(level)}">${labels[level] ?? 'Needs attention'}</span><span class="blocker-preview">${firstOpen ? `<b>${escapeHtml(firstOpen.title)}</b> · ${escapeHtml(firstOpen.reason)}` : 'All blocking requirements cleared'}</span>${count ? `<span class="blocker-count">${count} open</span>` : ''}</div>
-    </article>`;
+  if (!state.loaded) {
+    listEl.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+    return;
+  }
+  const visible = state.surgeries.filter((s) => state.filter === 'all' || levelOf(s) === state.filter);
+  if (!visible.length) {
+    listEl.innerHTML = `<div class="empty">${state.surgeries.length ? 'No surgeries match this filter.' : 'No surgeries scheduled.'}</div>`;
+    return;
+  }
+  listEl.innerHTML = visible.map((s) => {
+    const level = levelOf(s);
+    const open = s.blockers.filter((b) => !b.cleared);
+    const first = open[0];
+    const review = s.pendingVerification ?? open.filter((b) => b.status === 'evidence_received').length;
+    const line = first
+      ? `<b>${esc(first.title)}</b> · ${esc(first.reason)}`
+      : 'Every blocking requirement is cleared.';
+    return `<button type="button" class="row ${level} ${s.id === state.selectedId ? 'selected' : ''}" data-select="${esc(s.id)}" aria-pressed="${s.id === state.selectedId}">
+      <span class="countdown"><b>${s.days === 0 ? 'Today' : `T−${s.days}`}</b><span>${s.days === 0 ? 'surgery' : plural(s.days, 'day')}</span></span>
+      <span class="row-main">
+        <span class="row-title"><strong>${esc(s.name)}</strong><small>${s.age ?? '—'} · ${esc(s.procedure)}</small></span>
+        <span class="row-blocker">${line}</span>
+      </span>
+      <span class="row-side">
+        <span class="badge ${level}">${LEVEL_LABEL[level]}${open.length ? ` · ${open.length}` : ''}</span>
+        ${review ? `<span class="badge review">${review} to review</span>` : `<span class="row-date">${esc(s.date)}</span>`}
+      </span>
+    </button>`;
   }).join('');
-  list.querySelectorAll('.surgery-card').forEach((card) => {
-    card.addEventListener('click', () => selectSurgery(card.dataset.id));
-    card.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSurgery(card.dataset.id); } });
-  });
-
-  const totals = { ready: 0, attention: 0, risk: 0 };
-  surgeries.forEach((surgery) => { const value = surgery.readiness; totals[value === 'at-risk' ? 'risk' : value]++; });
-  document.querySelector('#total-count').textContent = surgeries.length;
-  document.querySelector('#attention-count').textContent = totals.risk + totals.attention;
-  document.querySelector('#ready-count').textContent = totals.ready;
-  document.querySelector('#nav-count').textContent = surgeries.length;
 }
 
-function requirementMarkup(requirement) {
-  const resolved = isResolved(requirement.status);
-  const owner = escapeHtml(requirement.owner ?? 'Unassigned');
-  const icon = requirement.kind === 'medication' ? 'Rx' : requirement.kind === 'lab' ? '⌁' : requirement.kind === 'logistics' ? '↗' : '◷';
-  let actions = '';
-  if (requirement.status === 'open') {
-    if (requirement.proposal) actions += `<button class="blocker-action" data-action="approve" data-id="${escapeHtml(requirement.id)}">Approve &amp; send template</button>`;
-    if (requirement.blocking) actions += `<button class="blocker-action secondary-action" data-action="verify" data-id="${escapeHtml(requirement.id)}">Verify</button>`;
-    actions += `<button class="text-action" data-action="waive" data-id="${escapeHtml(requirement.id)}">Waive requirement</button>`;
-  } else if (requirement.status === 'evidence_received') {
-    actions = `<button class="blocker-action" data-action="verify" data-id="${escapeHtml(requirement.id)}">Verify evidence</button><button class="text-action" data-action="reject" data-id="${escapeHtml(requirement.id)}">Reject evidence</button>`;
-  } else if (resolved && requirement.status !== 'satisfied') {
-    actions = `<button class="text-action" data-action="reopen" data-id="${escapeHtml(requirement.id)}">Reopen</button>`;
-  }
-  if (!clinicalReviewer && ['lab', 'medication', 'health'].includes(requirement.kind)) actions = '<small>Clinical staff review required</small>';
-
-  const source = requirement.source?.detail ? `<p class="source-detail"><strong>Source:</strong> ${escapeHtml(requirement.source.detail)}</p>` : '';
-  const evidence = requirement.evidence ? `<div class="evidence-box"><strong>${escapeHtml(requirement.evidence.summary)}</strong>${requirement.evidence.checks?.length ? `<ul>${requirement.evidence.checks.map((check) => `<li class="${check.ok ? 'check-ok' : 'check-fail'}">${check.ok ? '✓' : '!'} ${escapeHtml(check.label)} · ${escapeHtml(check.detail)}</li>`).join('')}</ul>` : ''}${requirement.evidence.documentId && provider.documentBlob ? `<img class="lab-preview" alt="Synthetic lab report evidence" data-document-id="${escapeHtml(requirement.evidence.documentId)}" hidden />` : ''}</div>` : '';
-  const proposal = requirement.proposal ? `<p class="template-copy"><strong>Staff-approved template · ${escapeHtml(requirement.proposal.drugClass)}</strong><br>${escapeHtml(requirement.proposal.text)}</p>` : '';
-  return `<article class="blocker-item ${resolved ? 'cleared' : ''}"><div class="blocker-head"><span class="blocker-symbol">${icon}</span><div class="blocker-copy"><strong>${escapeHtml(requirement.title)}</strong><p>${escapeHtml(requirement.reason)}</p></div><span class="blocker-state ${resolved ? 'state-cleared' : ''}">${escapeHtml(requirement.status.replaceAll('_', ' '))}</span></div><div class="owner-row"><span class="owner-dot">${initials(owner)}</span> Owner: ${owner}${requirement.blocking ? ' · blocking' : ''}</div>${source}${proposal}${evidence}<div class="action-row">${actions}</div></article>`;
-}
-
-function renderTasks(detail) {
-  const tasks = detail.tasks ?? [];
-  return `<section class="task-section" id="tasks"><div class="blocker-title"><h3>Coordinator tasks</h3><span>${tasks.filter((task) => task.status !== 'done').length} open</span></div>${tasks.length ? tasks.map((task) => `<article class="task-card"><div class="task-head">${escapeHtml(task.title)}<span>${escapeHtml(task.status)}</span></div><p>${escapeHtml(task.note)}</p><div class="task-owner">Owner: ${escapeHtml(task.owner)}</div>${task.status === 'open' && task.id ? `<button class="blocker-action" data-task-complete="${escapeHtml(task.id)}">Mark done</button>` : ''}</article>`).join('') : '<div class="empty-state compact">No tasks for this surgery.</div>'}
-    <form class="mini-form" id="task-form"><h4>Assign a follow-up</h4><input name="title" required maxlength="120" placeholder="Task, e.g. Call patient about transport" /><textarea name="detail" rows="2" placeholder="Notes for the owner"></textarea><div class="form-row"><select name="owner"><option value="coordinator">Coordinator</option><option value="nurse">Nurse</option><option value="surgeon">Surgeon</option></select><button class="blocker-action" type="submit">Create task</button></div></form></section>`;
-}
-
-function renderDetail() {
-  documentUrls.forEach((url) => URL.revokeObjectURL(url));
-  documentUrls = [];
-  const detail = selectedDetail ?? surgeries.find((item) => item.id === selectedId);
-  if (!detail) { panel.innerHTML = '<div class="empty-state">Select a surgery to see details.</div>'; return; }
-  const open = detail.readiness === undefined ? openBlockers(detail) : (detail.requirements?.filter(isOpenRequirement).length ?? openBlockers(detail));
-  const status = detail.readiness;
-  panel.innerHTML = `<div class="panel-label">SURGERY DETAILS</div><h2>${escapeHtml(detail.name)}</h2><p class="detail-procedure">${detail.age ?? '—'} · ${escapeHtml(detail.procedure)}</p>
-    <div class="detail-date"><span class="calendar-icon">▦</span><div><strong>${escapeHtml(detail.date)} · in ${detail.days} days</strong><small>${escapeHtml(detail.location ?? 'Northstar Surgical Center')} · ${escapeHtml(detail.surgeon ?? '')}</small></div></div>
-    <div class="readiness-row"><span>Readiness level</span><span class="status-pill ${statusClass(status)}">${labels[status] ?? 'Needs attention'}</span></div>
-    <p class="readiness-copy">${escapeHtml(detail.readinessHeadline ?? detail.headline ?? `${open} blocking requirement${open === 1 ? '' : 's'} need staff attention.`)}</p>
-    <button class="blocker-action full-action" id="check-record">Run record check</button>
-    <div class="panel-divider"></div><div class="blocker-title"><h3>Requirements &amp; blockers</h3><span>${open} open blockers</span></div>
-    ${detail.requirements?.length ? detail.requirements.map(requirementMarkup).join('') : (detail.blockers?.length ? detail.blockers.map((blocker) => requirementMarkup({ ...blocker, blocking: true, status: blocker.cleared ? 'verified' : 'open' })).join('') : '<div class="empty-state">No requirements. Run the record check to start.</div>')}
-    ${renderTasks(detail)}
-    <form class="mini-form" id="patient-message-form"><h4>Simulate a patient reply</h4><textarea name="message" rows="3" maxlength="2000" required placeholder="For example: I can't get a ride home"></textarea><label class="upload-label">Attach lab photo or PDF<input name="attachment" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label><div class="form-row"><button class="blocker-action" type="submit">Send as patient</button><button class="blocker-action secondary-action" type="button" id="send-sample-report">Send sample lab report</button></div></form>`;
-
-  panel.querySelector('#check-record')?.addEventListener('click', () => runCheck(detail.id));
-  panel.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', () => resolveRequirement(button.dataset.id, button.dataset.action)));
-  panel.querySelectorAll('[data-document-id]').forEach(async (preview) => {
-    try {
-      const blob = await provider.documentBlob(preview.dataset.documentId);
-      if (!preview.isConnected) return;
-      const url = URL.createObjectURL(blob);
-      documentUrls.push(url);
-      preview.src = url;
-      preview.hidden = false;
-    } catch (error) { if (preview.isConnected) notify(error.message); }
-  });
-  panel.querySelectorAll('[data-task-complete]').forEach((button) => button.addEventListener('click', () => completeTask(button.dataset.taskComplete)));
-  panel.querySelector('#task-form')?.addEventListener('submit', createTask);
-  panel.querySelector('#patient-message-form')?.addEventListener('submit', sendPatientMessage);
-  panel.querySelector('#send-sample-report')?.addEventListener('click', sendSampleReport);
-}
-
-async function loadList({ preserveSelection = true } = {}) {
-  try {
-    const nextSurgeries = await provider.listSurgeries();
-    const listChanged = JSON.stringify(nextSurgeries) !== JSON.stringify(surgeries);
-    surgeries = nextSurgeries;
-    if (!preserveSelection || !surgeries.some((surgery) => surgery.id === selectedId)) selectedId = surgeries[0]?.id ?? null;
-    if (listChanged || !preserveSelection) renderList();
-    if (selectedId) await loadDetail(selectedId);
-    else renderDetail();
-    document.querySelector('#service-status').textContent = provider.mode === 'mock' ? 'MOCK DATA' : 'CORE CONNECTED';
-    document.querySelector('#service-status').classList.toggle('mock-state', provider.mode === 'mock');
-  } catch (error) {
-    document.querySelector('#service-status').textContent = 'CORE OFFLINE';
-    panel.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br><br>Start the core with <code>bun start</code>, then reload this page.</div>`;
-  }
-}
-
-async function loadDetail(id) {
-  selectedId = id;
-  const nextDetail = await provider.getSurgery(id);
-  const detailChanged = JSON.stringify(nextDetail) !== JSON.stringify(selectedDetail);
-  selectedDetail = nextDetail;
-  if (detailChanged) renderDetail();
-}
-async function selectSurgery(id) {
-  selectedId = id;
-  selectedDetail = null;
+function renderBoard() {
+  renderSummary();
+  renderRunway();
+  renderFilters();
   renderList();
-  try { await loadDetail(id); } catch (error) { notify(error.message); }
 }
 
-function notify(message) {
+// ---------- Case panel ----------
+function requirementCard(req) {
+  const cleared = CLEARED.includes(req.status);
+  const review = req.status === 'evidence_received';
+  const tags = [
+    `<span class="tag">${esc(req.owner)}</span>`,
+    req.blocking ? '<span class="tag blocking">Blocking</span>' : '<span class="tag">Advisory</span>',
+  ];
+  const statusBadge = cleared
+    ? `<span class="badge ready">${req.status === 'satisfied' ? 'In record' : req.status === 'waived' ? 'Waived' : 'Verified'}</span>`
+    : review ? '<span class="badge review">Needs review</span>' : '<span class="badge neutral">Open</span>';
+
+  const provenance = req.source?.detail
+    ? `<p class="provenance"><span class="system">${esc(SYSTEM_LABEL[req.source.system] ?? req.source.system)}</span><span>${esc(req.source.detail)}</span></p>`
+    : '';
+
+  const proposal = req.proposal && !cleared
+    ? `<div class="template"><header>Staff-approved template · ${esc(req.proposal.drugClass)}</header>${esc(req.proposal.text).replace('{{staff_instruction}}', '<mark>staff instruction</mark>')}</div>`
+    : '';
+
+  let evidence = '';
+  if (req.evidence) {
+    const documentId = req.evidence.documentId;
+    const hasImage = Boolean(documentId && provider.documentBlob);
+    const checks = req.evidence.checks?.length
+      ? `<ul class="checks">${req.evidence.checks.map((c) => `<li class="${c.ok ? 'ok' : 'fail'}">${icon(c.ok ? 'check' : 'alert')}<span>${esc(c.label)} <small>· ${esc(c.detail)}</small></span></li>`).join('')}</ul>`
+      : '';
+    evidence = `<div class="evidence ${hasImage ? '' : 'no-image'}"><div><p class="evidence-summary">${esc(req.evidence.summary)}</p>${checks}</div>${hasImage ? `<a class="evidence-thumb" data-document-id="${esc(documentId)}" target="_blank" rel="noreferrer"><span>Loading report…</span><img alt="Lab report the patient sent" hidden/></a>` : ''}</div>`;
+  }
+
+  const canReview = clinicalReviewer || !['lab', 'medication', 'health'].includes(req.kind);
+  const composer = canReview && state.composer?.id === req.id ? noteComposer(req, state.composer.action) : '';
+  let actions = '';
+  if (canReview && !composer) {
+    if (review) {
+      actions = `<button class="primary-button" data-act="verify" data-id="${esc(req.id)}">${icon('check')}Verify evidence</button>
+        <button class="ghost-button" data-compose="reject_evidence" data-id="${esc(req.id)}">Reject</button>`;
+    } else if (req.status === 'open') {
+      if (req.proposal) {
+        actions += `<button class="primary-button" data-compose="approve_template" data-id="${esc(req.id)}">${icon('send')}Approve &amp; send</button>`;
+      }
+      actions += `<button class="${req.proposal ? 'ghost-button' : 'primary-button'}" data-act="verify" data-id="${esc(req.id)}">${icon('check')}Mark verified</button>
+        <button class="quiet-button" data-compose="waive" data-id="${esc(req.id)}">Waive</button>`;
+    } else if (cleared && req.status !== 'satisfied') {
+      actions = `<button class="quiet-button" data-act="reopen" data-id="${esc(req.id)}">Reopen</button>`;
+    }
+  }
+  const staffNote = cleared && req.staffNote ? `<p class="provenance"><span class="system">Note</span><span>${esc(req.staffNote)}</span></p>` : '';
+
+  return `<article class="req ${cleared ? 'cleared' : ''} ${review ? 'review' : ''}" id="req-${esc(req.id)}">
+    <div class="req-head">
+      <span class="kind">${cleared ? icon('check') : kindIcon(req.kind)}</span>
+      <div><p class="req-title">${esc(req.title)}</p><p class="req-reason">${esc(req.reason)}</p><div class="req-tags">${tags.join('')}</div></div>
+      ${statusBadge}
+    </div>
+    ${provenance}${staffNote}${proposal}${evidence}${composer}
+    ${actions ? `<div class="req-actions">${actions}</div>` : ''}
+  </article>`;
+}
+
+function noteComposer(req, action) {
+  const copy = {
+    approve_template: req.proposal?.requiresStaffInstruction
+      ? { label: 'Staff instruction to insert', hint: 'Write the exact instruction from the care team. It replaces the highlighted placeholder. Do not paste AI-generated medication advice.', required: true }
+      : { label: 'Optional note for the record', hint: 'The template above is sent as written.', required: false },
+    waive: { label: 'Why is this requirement being waived?', hint: 'Saved to the activity log with your name.', required: true },
+    reject_evidence: { label: 'Why is this evidence being rejected?', hint: 'The requirement reopens and the patient will need to send something new.', required: true },
+  }[action];
+  const submit = { approve_template: 'Approve & send to patient', waive: 'Waive requirement', reject_evidence: 'Reject evidence' }[action];
+  return `<form class="note-composer" data-note-for="${esc(req.id)}" data-action="${action}">
+    <label for="note-${esc(req.id)}">${copy.label}</label>
+    <textarea id="note-${esc(req.id)}" name="note" rows="3" ${copy.required ? 'required' : ''} maxlength="600"></textarea>
+    <p>${copy.hint}</p>
+    <div class="row-actions"><button type="button" class="quiet-button" data-cancel-compose>Cancel</button><button type="submit" class="primary-button">${submit}</button></div>
+  </form>`;
+}
+
+function checklistPanel(d) {
+  const reqs = d.requirements ?? [];
+  if (!reqs.length) {
+    return `<div class="case-empty"><p>This surgery has not been checked yet.</p><p style="margin-top:14px"><button class="primary-button" data-run-check>${icon('refresh')}Run record check</button></p><p style="margin-top:10px;font-size:13px">Reads the health record and drug classes, then lists what is missing.</p></div>`;
+  }
+  const review = reqs.filter((r) => r.status === 'evidence_received');
+  const open = reqs.filter((r) => r.status === 'open').sort((a, b) => Number(b.blocking) - Number(a.blocking));
+  const cleared = reqs.filter((r) => CLEARED.includes(r.status));
+  const tasks = d.tasks ?? [];
+  const openTasks = tasks.filter((t) => t.status !== 'done');
+
+  const group = (title, items) => items.length
+    ? `<section class="group"><h3 class="group-title"><span>${title}</span><span>${items.length}</span></h3>${items.map(requirementCard).join('')}</section>`
+    : '';
+  return `${group('Needs your review', review)}${group('Open', open)}
+    ${cleared.length ? `<details class="group" ${!review.length && !open.length ? 'open' : ''}><summary class="group-title"><span>Cleared · ${cleared.length}</span></summary>${cleared.map(requirementCard).join('')}</details>` : ''}
+    <section class="group">
+      <h3 class="group-title"><span>Follow-ups</span><span>${openTasks.length} open</span></h3>
+      ${tasks.length ? tasks.map((t) => `<div class="task ${t.status === 'done' ? 'done' : ''}">
+        <button class="task-check" ${t.status === 'done' ? 'disabled aria-label="Done"' : `data-complete="${esc(t.id)}" aria-label="Mark ${esc(t.title)} done"`}>${icon('check')}</button>
+        <div><p class="task-title">${esc(t.title)}</p>${t.note ? `<p class="task-detail">${esc(t.note)}</p>` : ''}</div>
+        <span class="tag">${esc(t.owner)}</span>
+      </div>`).join('') : '<p class="task-detail">No follow-ups yet.</p>'}
+      <form class="task-form" id="task-form">
+        <input type="text" name="title" required maxlength="120" placeholder="Add a follow-up, e.g. Call about the ride home" aria-label="Follow-up title" />
+        <select name="owner" aria-label="Owner"><option value="coordinator">Coordinator</option><option value="nurse">Nurse</option><option value="surgeon">Surgeon</option></select>
+        <button class="ghost-button" type="submit">${icon('plus')}Add</button>
+      </form>
+    </section>
+    <p style="margin-top:4px"><button class="quiet-button" data-run-check>${icon('refresh')}Re-run record check</button></p>`;
+}
+
+function conversationPanel(d) {
+  const messages = d.messages ?? [];
+  const thread = messages.length
+    ? messages.map((m) => {
+      const dir = m.direction === 'in' ? 'in' : 'out';
+      const status = dir === 'out'
+        ? (m.deliveryStatus === 'queued' ? '<span class="queued">Queued</span>' : 'Sent')
+        : (m.classification?.intent ? `<span class="intent">${esc(m.classification.intent.replaceAll('_', ' '))}</span>` : 'Received');
+      const files = m.attachments?.length ? `<br>${icon('clip')} ${plural(m.attachments.length, 'attachment')}` : '';
+      return `<div class="bubble ${dir}">${esc(m.body) || '<em>Attachment</em>'}${files}</div><div class="bubble-meta ${dir}">${esc(m.channel)} · ${clockTime(m.createdAt)} · ${status}</div>`;
+    }).join('')
+    : '<p class="task-detail">No messages yet. The record check queues the first one.</p>';
+  return `<div class="thread">${thread}</div>
+    <form class="composer" id="patient-form">
+      <textarea name="message" rows="2" maxlength="2000" placeholder="Reply as ${esc(d.name?.split(' ')[0] ?? 'the patient')}… e.g. My daughter is driving me home" aria-label="Simulated patient message"></textarea>
+      <div class="composer-bar">
+        <label class="attach">${icon('clip')}<span id="attach-label">Attach</span><input type="file" name="attachment" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
+        <button type="button" class="quiet-button" id="send-sample">Send sample lab report</button>
+        <span class="spacer"></span>
+        <button type="submit" class="primary-button">${icon('send')}Send</button>
+      </div>
+    </form>
+    <p class="composer-hint">Simulated channel: stands in for the patient's iMessage so the demo works without a phone.</p>`;
+}
+
+function activityPanel(d) {
+  const events = d.events ?? [];
+  if (!events.length) return '<p class="task-detail">Nothing has happened yet.</p>';
+  return `<ol class="timeline">${events.map((e) => `<li><p>${esc(e.summary)}</p><time datetime="${esc(e.createdAt)}">${relativeTime(e.createdAt)}</time>${e.actor ? ` <span class="actor">· ${esc(e.actor)}</span>` : ''}</li>`).join('')}</ol>`;
+}
+
+function renderCase() {
+  releaseDocumentUrls();
+  document.body.classList.toggle('case-open', Boolean(state.selectedId));
+  const d = state.detail;
+  if (!d) {
+    caseEl.innerHTML = state.selectedId
+      ? '<div class="case-empty">Loading…</div>'
+      : '<div class="case-empty">Select a surgery to see what stands between the patient and surgery day.</div>';
+    return;
+  }
+  const level = levelOf(d);
+  const reqs = d.requirements ?? [];
+  const review = reqs.filter((r) => r.status === 'evidence_received').length;
+  const openReqs = reqs.filter((r) => r.blocking && r.status === 'open').length;
+  const sub = !reqs.length
+    ? 'Run the record check to see what is missing.'
+    : [openReqs && `${plural(openReqs, 'blocker')} open`, review && `${review} waiting for staff review`].filter(Boolean).join(' · ') || 'Nothing left to clear.';
+  const tabs = [
+    { key: 'checklist', label: 'Checklist', count: review + openReqs },
+    { key: 'conversation', label: 'Conversation', count: d.messages?.length ?? 0 },
+    { key: 'activity', label: 'Activity', count: 0 },
+  ];
+  const body = state.tab === 'conversation' ? conversationPanel(d) : state.tab === 'activity' ? activityPanel(d) : checklistPanel(d);
+
+  caseEl.innerHTML = `<header class="case-head">
+      <button class="quiet-button case-back" data-back>${icon('back')}All surgeries</button>
+      <div class="case-name"><h2>${esc(d.name)}</h2><span class="badge ${level}">${LEVEL_LABEL[level]}</span></div>
+      <p style="color:var(--ink-2);margin-top:2px">${d.age ?? '—'} · ${esc(d.procedure)}</p>
+      <div class="case-meta"><span>${icon('calendar')}${esc(d.date)} · ${d.days === 0 ? 'today' : `in ${plural(d.days, 'day')}`}</span><span>${esc(d.location ?? '')}</span><span>${esc(d.surgeon ?? '')}</span></div>
+      <div class="readiness-banner ${level}"><p>${esc(d.readinessHeadline ?? d.headline ?? LEVEL_LABEL[level])}<small>${esc(sub)}</small></p></div>
+    </header>
+    <nav class="tabs" role="tablist" aria-label="Surgery sections">${tabs.map((t) => `<button class="tab" role="tab" aria-selected="${state.tab === t.key}" data-tab="${t.key}">${t.label}${t.count ? `<span class="count">${t.count}</span>` : ''}</button>`).join('')}</nav>
+    <div class="tabpanel" role="tabpanel">${body}</div>`;
+  void loadDocumentImages();
+}
+
+// Polling must not wipe what someone is typing or a note they are writing.
+function caseIsBusy() {
+  if (state.composer) return true;
+  const active = document.activeElement;
+  if (active && caseEl.contains(active) && ['TEXTAREA', 'INPUT', 'SELECT'].includes(active.tagName)) return true;
+  return [...caseEl.querySelectorAll('textarea, input[type="text"], input[type="file"]')].some((el) => el.value);
+}
+
+// ---------- Data ----------
+async function loadAll({ force = false } = {}) {
+  try {
+    const next = await provider.listSurgeries();
+    const changed = !state.loaded || JSON.stringify(next) !== JSON.stringify(state.surgeries);
+    state.surgeries = next;
+    state.loaded = true;
+    if (state.selectedId && !next.some((s) => s.id === state.selectedId)) { state.selectedId = null; state.detail = null; }
+    if (!state.selectedId && next.length && window.matchMedia('(min-width: 1101px)').matches) state.selectedId = next[0].id;
+    if (changed || force) renderBoard();
+    setMode(provider.mode === 'mock' ? 'mock' : 'live');
+    if (state.selectedId) await loadDetail(state.selectedId, { force });
+    else renderCase();
+  } catch (error) {
+    setMode('offline');
+    state.loaded = true;
+    renderBoard();
+    caseEl.innerHTML = `<div class="case-empty"><p>${esc(error.message)}</p><p style="margin-top:10px">Start the core with <code>bun start</code>; this page reconnects on its own.</p></div>`;
+  }
+}
+
+async function loadDetail(id, { force = false } = {}) {
+  const ticket = ++detailRequest;
+  const next = await provider.getSurgery(id);
+  // A slower response for a previously selected surgery must not replace the current one.
+  if (ticket !== detailRequest || id !== state.selectedId) return;
+  const changed = JSON.stringify(next) !== JSON.stringify(state.detail);
+  state.detail = next;
+  if (force || (changed && !caseIsBusy())) renderCase();
+}
+
+async function select(id) {
+  if (id === state.selectedId && state.detail) return;
+  state.selectedId = id;
+  state.detail = null;
+  state.composer = null;
+  state.tab = 'checklist';
+  renderRunway();
+  renderList();
+  renderCase();
+  try { await loadDetail(id, { force: true }); } catch (error) { notify(error.message, true); }
+  if (!window.matchMedia('(min-width: 1101px)').matches) window.scrollTo({ top: 0 });
+}
+
+function setMode(mode) {
+  const el = $('#mode');
+  el.className = `mode ${mode}`;
+  el.querySelector('span').textContent = mode === 'live' ? 'Core live' : mode === 'mock' ? 'Mock data' : 'Core offline';
+}
+
+async function describeMode() {
+  try {
+    const health = await provider.health?.();
+    if (!health) return;
+    const bits = [health.database === 'neon' ? 'Neon' : 'in-memory DB', health.records === 'fixtures' ? 'record fixtures' : 'live records', health.llm === 'fake' ? 'keyword model' : health.llm];
+    $('#mode').title = `Core: ${bits.join(' · ')}`;
+  } catch { /* the poll reports offline */ }
+}
+
+// ---------- Actions ----------
+let toastTimer;
+function notify(message, isError = false) {
+  const toast = $('#toast');
   toast.textContent = message;
+  toast.classList.toggle('error', isError);
   toast.classList.add('visible');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('visible'), 3000);
-}
-async function refreshAfterMutation(message) {
-  await loadList();
-  notify(message);
+  toastTimer = setTimeout(() => toast.classList.remove('visible'), isError ? 6000 : 3500);
 }
 
-async function runCheck(surgeryId) {
+async function run(button, work, message) {
+  if (button) button.disabled = true;
   try {
-    await provider.refreshSurgery(surgeryId);
-    await refreshAfterMutation('Record check complete. Review each finding and source.');
-  } catch (error) { notify(error.message); }
-}
-async function resolveRequirement(requirementId, actionKey) {
-  const requirement = selectedDetail?.requirements?.find((item) => item.id === requirementId);
-  const action = ({ verify: 'verify', approve: 'approve_template', waive: 'waive', reject: 'reject_evidence', reopen: 'reopen' })[actionKey];
-  if (!requirement || !action) return;
-  let note;
-  if (action === 'approve_template' && requirement.proposal?.requiresStaffInstruction) {
-    note = window.prompt('Enter the exact staff-approved sentence to insert. Do not enter AI-generated medication advice:');
-    if (!note?.trim()) return;
-  } else if (action === 'waive' || action === 'reject_evidence') {
-    note = window.prompt(action === 'waive' ? 'Why is this requirement being waived?' : 'Why is this evidence being rejected?');
-    if (!note?.trim()) return;
+    const result = await work();
+    state.composer = null;
+    await loadAll({ force: true });
+    if (message) notify(typeof message === 'function' ? message(result) : message);
+  } catch (error) {
+    notify(error.message, true);
+  } finally {
+    if (button?.isConnected) button.disabled = false;
   }
-  try {
-    await provider.resolveRequirement(requirementId, action, undefined, note?.trim());
-    await refreshAfterMutation(action === 'approve_template' ? 'Staff-approved template queued for the patient.' : `Requirement ${action.replace('_', ' ')} recorded.`);
-  } catch (error) { notify(error.message); }
-}
-async function completeTask(taskId) {
-  try { await provider.completeTask(taskId); await refreshAfterMutation('Task marked done. Its requirement stays unchanged until verified.'); }
-  catch (error) { notify(error.message); }
-}
-async function createTask(event) {
-  event.preventDefault();
-  const values = new FormData(event.currentTarget);
-  try {
-    await provider.createTask(selectedId, values.get('title').trim(), values.get('owner'), values.get('detail').trim());
-    await refreshAfterMutation('Follow-up task assigned.');
-  } catch (error) { notify(error.message); }
-}
-async function sendPatientMessage(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const data = new FormData(form);
-  const message = data.get('message').trim();
-  if (!message) return;
-  try {
-    const file = data.get('attachment');
-    let attachment;
-    if (file?.size) {
-      if (file.size > 6 * 1024 * 1024) throw new Error('Choose a file smaller than 6 MB.');
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Could not read the attachment.'));
-        reader.readAsDataURL(file);
-      });
-      attachment = { mimeType: file.type || 'application/octet-stream', base64: dataUrl.split(',')[1] };
-    }
-    const result = await provider.sendPatientMessage(selectedId, message, attachment);
-    await loadList();
-    const replies = result.replies?.join(' ') ?? '';
-    const effects = result.effects?.map((effect) => effect.title).join(', ') ?? '';
-    notify([replies, effects && `Created: ${effects}`].filter(Boolean).join(' ')
-      || `Message classified as ${result.classification?.intent ?? 'received'}.`);
-  } catch (error) { notify(error.message); }
-}
-async function sendSampleReport() {
-  try {
-    const response = await fetch('/db/seed/assets/sample-lab-report.png');
-    if (!response.ok) throw new Error('Could not load the synthetic sample lab report.');
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    let binary = '';
-    for (let index = 0; index < bytes.length; index += 0x8000) {
-      binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-    }
-    const result = await provider.sendPatientMessage(selectedId,
-      'I did my pre-op blood work at another clinic; here is the report.',
-      { mimeType: 'image/png', base64: btoa(binary) });
-    await loadList();
-    notify(result.replies?.join(' ') || 'Sample lab report sent. Review its extraction and verify it as staff.');
-  } catch (error) { notify(error.message); }
 }
 
-document.querySelector('#today').textContent = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
-document.querySelector('#page-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
-document.querySelector('#reset-demo').addEventListener('click', async () => {
-  if (!window.confirm('Reset the synthetic demo surgeries and erase the current in-memory demo changes?')) return;
-  try { await provider.resetDemo(); await loadList({ preserveSelection: false }); notify('Demo reset. Run the record check to generate current blockers.'); }
-  catch (error) { notify(error.message); }
+const ACTION_DONE = {
+  verify: 'Verified and logged.',
+  approve_template: 'Approved. The message is queued for the patient.',
+  waive: 'Requirement waived.',
+  reject_evidence: 'Evidence rejected. The requirement is open again.',
+  reopen: 'Requirement reopened.',
+};
+
+function requirementAction(button, id, action, note) {
+  return run(button, () => provider.resolveRequirement(id, action, undefined, note), ACTION_DONE[action]);
+}
+
+function confirmDialog(title, body, confirmLabel) {
+  const dialog = $('#dialog');
+  $('#dialog-title').textContent = title;
+  $('#dialog-body').textContent = body;
+  $('#dialog-confirm').textContent = confirmLabel;
+  dialog.returnValue = '';
+  dialog.showModal();
+  return new Promise((resolve) => dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true }));
+}
+
+async function fileToAttachment(file) {
+  if (file.size > 6 * 1024 * 1024) throw new Error('Choose a file smaller than 6 MB.');
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read the attachment.'));
+    reader.readAsDataURL(file);
+  });
+  return { mimeType: file.type || 'application/octet-stream', base64: String(dataUrl).split(',')[1] };
+}
+
+function inboundMessage(result) {
+  const effects = result?.effects?.map((e) => e.title).filter(Boolean) ?? [];
+  if (effects.length) return `Patient message handled. Created: ${effects.join(', ')}.`;
+  return result?.classification?.intent ? `Patient message read as “${result.classification.intent.replaceAll('_', ' ')}”.` : 'Patient message received.';
+}
+
+// ---------- Events (delegated, so re-renders keep working) ----------
+document.addEventListener('click', async (event) => {
+  const target = event.target.closest('button');
+  if (!target || target.closest('dialog')) return;
+
+  if (target.dataset.select) { select(target.dataset.select); return; }
+  if (target.dataset.filter) { state.filter = target.dataset.filter; renderFilters(); renderList(); return; }
+  if (target.dataset.tab) { state.tab = target.dataset.tab; state.composer = null; renderCase(); return; }
+  if (target.hasAttribute('data-back')) { state.selectedId = null; state.detail = null; renderBoard(); renderCase(); return; }
+  if (target.hasAttribute('data-run-check')) {
+    run(target, () => provider.refreshSurgery(state.selectedId), 'Record check complete. Each finding shows its source.');
+    return;
+  }
+  if (target.dataset.act) { requirementAction(target, target.dataset.id, target.dataset.act); return; }
+  if (target.dataset.compose) {
+    state.composer = { id: target.dataset.id, action: target.dataset.compose };
+    renderCase();
+    caseEl.querySelector(`[data-note-for="${CSS.escape(target.dataset.id)}"] textarea`)?.focus();
+    return;
+  }
+  if (target.hasAttribute('data-cancel-compose')) { state.composer = null; renderCase(); return; }
+  if (target.dataset.complete) {
+    run(target, () => provider.completeTask(target.dataset.complete), 'Follow-up done. Clear its requirement separately once verified.');
+    return;
+  }
+  if (target.id === 'send-sample') {
+    run(target, async () => {
+      const response = await fetch('/db/seed/assets/sample-lab-report.png');
+      if (!response.ok) throw new Error('Could not load the synthetic sample lab report.');
+      const attachment = await fileToAttachment(new File([await response.blob()], 'sample-lab-report.png', { type: 'image/png' }));
+      return provider.sendPatientMessage(state.selectedId, 'I did my pre-op blood work at another clinic; here is the report.', attachment);
+    }, (result) => `${inboundMessage(result)} Open the Checklist tab to review it.`);
+    return;
+  }
+  if (target.id === 'reset-demo') {
+    const ok = await confirmDialog('Reset the demo?', 'This reloads the three synthetic surgeries and erases every change made so far in this demo database.', 'Reset demo');
+    if (!ok) return;
+    state.selectedId = null;
+    state.detail = null;
+    run(target, () => provider.resetDemo(), 'Demo reset. Open Harriet and run the record check.');
+  }
 });
 
-loadList({ preserveSelection: false });
-if (provider.mode === 'core') setInterval(() => { if (hasStaffAccess()) loadList(); }, 3000);
+document.addEventListener('submit', (event) => {
+  const form = event.target;
+  if (form.closest('dialog')) return;
+  event.preventDefault();
+  const submit = form.querySelector('[type="submit"]');
+
+  if (form.dataset.noteFor) {
+    const note = new FormData(form).get('note')?.toString().trim();
+    requirementAction(submit, form.dataset.noteFor, form.dataset.action, note || undefined);
+    return;
+  }
+  if (form.id === 'task-form') {
+    const data = new FormData(form);
+    run(submit, () => provider.createTask(state.selectedId, data.get('title').toString().trim(), data.get('owner'), ''), 'Follow-up added.');
+    return;
+  }
+  if (form.id === 'patient-form') {
+    const data = new FormData(form);
+    const message = data.get('message')?.toString().trim() ?? '';
+    const file = data.get('attachment');
+    if (!message && !file?.size) { notify('Write a message or attach a file.', true); return; }
+    run(submit, async () => {
+      const attachment = file?.size ? await fileToAttachment(file) : undefined;
+      return provider.sendPatientMessage(state.selectedId, message, attachment);
+    }, inboundMessage);
+  }
+});
+
+document.addEventListener('change', (event) => {
+  if (event.target.name === 'attachment') {
+    const label = $('#attach-label');
+    if (label) label.textContent = event.target.files?.[0]?.name ?? 'Attach';
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.composer) { state.composer = null; renderCase(); }
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && event.target.closest?.('#patient-form, .note-composer')) {
+    event.target.closest('form').requestSubmit();
+  }
+});
+
+// ---------- Start ----------
+$('#today').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+renderBoard();
+renderCase();
+await loadAll({ force: true });
+describeMode();
+if (provider.mode === 'core') {
+  setInterval(() => { if (!document.hidden && hasStaffAccess()) loadAll(); }, 3000);
+}

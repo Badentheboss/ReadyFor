@@ -176,10 +176,9 @@ function grantAccess() {
   accessGranted = true;
   root.hidden = true;
   shell.hidden = false;
-  document.querySelector('.user-card strong').textContent = staff.user.name;
-  document.querySelector('.user-card small').textContent = roleLabel(staff.membership.role);
-  document.querySelector('.avatar').textContent = staff.user.name.split(/\s+/).map((word) => word[0]).slice(0, 2).join('').toUpperCase();
-  document.querySelector('.page-heading h1').textContent = `Welcome, ${staff.user.name.split(' ')[0]}`;
+  document.querySelector('.staff-name').textContent = staff.user.name;
+  document.querySelector('.staff-role').textContent = roleLabel(staff.membership.role);
+  document.querySelector('.staff-avatar').textContent = staff.user.name.split(/\s+/).map((word) => word[0]).slice(0, 2).join('').toUpperCase();
   const signout = document.querySelector('#staff-signout');
   signout.hidden = false;
   signout.onclick = signOut;
