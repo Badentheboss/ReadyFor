@@ -91,13 +91,14 @@ export function createGateway(config: GatewayConfig, coreFetch: FetchTransport =
     }
     const path = provider ? url.pathname.slice('/auth/provider/'.length) : url.pathname.slice('/api'.length);
     const routeAllowed = provider ? providerRoutes[path] === request.method :
-      request.method === 'GET' ? /^\/(me|health|surgeries)$/.test(path)
+      request.method === 'GET' ? /^\/(me|health|surgeries|alerts)$/.test(path)
         || /^\/surgeries\/[A-Za-z0-9_-]+(\/brief)?$/.test(path)
         || /^\/documents\/[A-Za-z0-9_-]+\/content$/.test(path)
         : /^\/(tasks|demo\/reset|messages\/inbound)$/.test(path)
           || /^\/surgeries\/[A-Za-z0-9_-]+\/check$/.test(path)
           || /^\/(tasks|requirements)\/[A-Za-z0-9_-]+\/actions$/.test(path)
-          || /^\/messages\/[A-Za-z0-9_-]+\/retry$/.test(path);
+          || /^\/messages\/[A-Za-z0-9_-]+\/retry$/.test(path)
+          || /^\/alerts\/[A-Za-z0-9_-]+\/(acknowledge|resolve)$/.test(path);
     if (!routeAllowed) return failure(404, 'not_found', 'Not found.');
     if (!provider && !/^Bearer [^\s]+$/.test(request.headers.get('authorization') ?? '')) {
       return failure(401, 'unauthenticated', 'Sign in to continue.');

@@ -59,6 +59,7 @@ function mapSummary(item) {
       cleared: ['satisfied', 'verified', 'waived'].includes(blocker.status),
       actionKind: blocker.kind === 'medication' ? 'template' : 'verify',
     })),
+    schedule: item.schedule ?? null,
     tasks: [],
   };
 }
@@ -100,6 +101,8 @@ function mapDetail(detail) {
     documents: detail.documents,
     events: detail.events,
     outreach: detail.outreach ?? [],
+    alerts: detail.alerts ?? [],
+    schedule: detail.schedule ?? null,
   };
 }
 
@@ -165,6 +168,9 @@ function createCoreProvider(baseUrl, config = {}) {
     },
     resetDemo: () => json('/demo/reset', 'POST'),
     retryMessage: (messageId) => json(`/messages/${encodeURIComponent(messageId)}/retry`, 'POST', {}),
+    listAlerts: async () => (await json('/alerts')).alerts ?? [],
+    acknowledgeAlert: (alertId) => json(`/alerts/${encodeURIComponent(alertId)}/acknowledge`, 'POST', {}),
+    resolveAlert: (alertId, note) => json(`/alerts/${encodeURIComponent(alertId)}/resolve`, 'POST', { note }),
     health: () => json('/health'),
     documentUrl: () => null,
     async documentBlob(documentId) {
@@ -194,7 +200,11 @@ function createMockProvider() {
     date: new Date(`${fixture.surgeryDate}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }),
     days: Math.max(0, Math.ceil((new Date(`${fixture.surgeryDate}T12:00:00Z`) - new Date('2026-10-05T12:00:00Z')) / 86_400_000)),
     readiness: fixture.readiness === 'needs-attention' ? 'attention' : fixture.readiness,
-    headline: fixture.readiness,
+    headline: (() => {
+      const open = fixture.blockers.filter((blocker) => blocker.state !== 'cleared').length;
+      const label = { 'at-risk': 'At risk', 'needs-attention': 'Needs attention', ready: 'Ready' }[fixture.readiness] ?? 'Needs attention';
+      return open ? `${label}: ${open} blocker${open === 1 ? '' : 's'}` : label;
+    })(),
     openCount: fixture.blockers.filter((blocker) => blocker.state !== 'cleared').length,
     blockers: fixture.blockers.map((blocker) => ({
       id: blocker.id, key: blocker.kind, kind: blocker.kind, title: blocker.title,
@@ -202,11 +212,41 @@ function createMockProvider() {
       cleared: blocker.state === 'cleared', actionKind: blocker.kind === 'medication' ? 'template' : 'verify',
     })),
     tasks: fixture.tasks.map((task) => ({ title: task.title, note: task.title, owner: task.owner, status: 'open' })),
+    schedule: mockSchedule(fixture),
+    alerts: mockAlerts.filter((alert) => alert.surgeryId === fixture.id),
   });
+  // Synthetic stand-ins so the offline demo shows escalation and scheduling too.
+  const minutesAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
+  const mockAlerts = [];
+  let mockAlertReady;
+  // Memoised: the list and the alerts load in parallel and must not both create the demo alert.
+  const ensureMockAlert = () => (mockAlertReady ??= (async () => {
+    const risky = (await loadFixtures()).surgeries.find((item) => item.readiness === 'at-risk');
+    if (!risky) return;
+    mockAlerts.push({
+      id: 'alr_demo', surgeryId: risky.id, patientName: risky.patient.name, procedureName: risky.procedure,
+      summary: 'Patient reports a new cough and a fever of 38.4°C since last night.', status: 'open', level: 0,
+      createdAt: minutesAgo(3), notifiedAt: minutesAgo(3), escalateAfter: new Date(Date.now() + 2 * 60_000).toISOString(),
+      exhausted: false, acknowledgedBy: null, acknowledgedAt: null,
+      notified: { name: 'Priya Shah', role: 'nurse' }, next: { name: 'Dr. Avery Demo', role: 'surgeon' },
+      notifications: [{ contactName: 'Priya Shah', contactRole: 'nurse', deliveryStatus: 'sent', deliveryError: null }],
+    });
+  })());
+  const mockSchedule = (fixture) => {
+    const level = fixture.readiness === 'at-risk' ? 'needs_attention' : fixture.readiness === 'ready' ? 'on_track' : 'conflict';
+    const item = (key, title, status, detail) => ({ key, title, status, detail, source: { system: 'fhir', resource: `Appointment/${fixture.id}-${key}`, lastUpdated: minutesAgo(180) } });
+    const items = [
+      level === 'conflict' ? item('or_case', 'Operating room booking', 'conflict', 'The OR is booked two hours after the scheduled surgery time.') : item('or_case', 'Operating room booking', 'ok', 'Booked for the scheduled time.'),
+      level === 'needs_attention' ? item('preop_visit', 'Pre-op clinic visit', 'attention', 'The visit is proposed, not confirmed.') : item('preop_visit', 'Pre-op clinic visit', 'ok', 'Booked three days before surgery.'),
+    ];
+    const headline = { on_track: 'Schedule on track', needs_attention: 'Schedule: 1 item to confirm', conflict: 'Schedule conflict: operating room booking' }[level];
+    return { level, headline, checkedAt: minutesAgo(1), feed: 'Synthetic FHIR R4 Appointment feed', items };
+  };
   return {
     mode: 'mock',
     async listSurgeries() {
       const fixtures = await loadFixtures();
+      await ensureMockAlert();
       return fixtures.surgeries.map(mapFixture);
     },
     async getSurgery(id) {
@@ -235,6 +275,20 @@ function createMockProvider() {
     },
     async completeTask() { throw new Error('Task completion is available only against the core API.'); },
     async retryMessage() { throw new Error('Retrying a message is available only against the core API.'); },
+    async listAlerts() {
+      await ensureMockAlert();
+      return mockAlerts.filter((alert) => alert.status !== 'resolved').map((alert) => ({ ...alert }));
+    },
+    async acknowledgeAlert(id) {
+      const alert = mockAlerts.find((item) => item.id === id);
+      if (!alert || alert.status !== 'open') throw new Error('This alert is no longer open.');
+      Object.assign(alert, { status: 'acknowledged', acknowledgedBy: 'admin:Demo staff', acknowledgedAt: new Date().toISOString(), next: null });
+    },
+    async resolveAlert(id, note) {
+      const alert = mockAlerts.find((item) => item.id === id);
+      if (!alert) throw new Error('Alert not found.');
+      Object.assign(alert, { status: 'resolved', resolution: note });
+    },
     async sendPatientMessage(surgeryId, body) {
       const surgery = (await loadFixtures()).surgeries.find((item) => item.id === surgeryId);
       if (!surgery) throw new Error('Surgery was not found in the mock fixture.');

@@ -388,3 +388,48 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--focus); out
 .bubble-meta .failed { color: var(--risk); font-weight: 500; }
 .bubble-retry { align-self: flex-end; display: flex; align-items: center; gap: 10px; max-width: 86%; font-size: 12.5px; color: var(--risk); }
 .bubble-retry .ghost-button { min-height: 30px; font-size: 13px; }
+
+/* Urgent alerts */
+.urgent { margin: 0 0 22px; display: grid; gap: 10px; }
+.urgent-title { display: flex; align-items: center; gap: 8px; color: var(--risk); font-size: 15px; }
+.alert { border: 1px solid color-mix(in srgb, var(--risk) 40%, var(--line)); border-left: 4px solid var(--risk); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; }
+.case-head .alert { margin-top: 14px; }
+.alert.taken { border-color: var(--line); border-left-color: var(--attention); }
+.alert header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.alert header time { margin-left: auto; font: 400 12px var(--mono); color: var(--muted); }
+.alert-tag { display: inline-flex; align-items: center; gap: 5px; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--risk); }
+.alert-tag svg { width: 14px; height: 14px; }
+.alert.taken .alert-tag { color: var(--attention); }
+.alert-meta { color: var(--muted); font-size: 13px; }
+.alert-summary { margin-top: 6px; font-weight: 500; }
+.alert-state { margin-top: 8px; display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.alert-state svg { width: 15px; height: 15px; }
+.alert-state.wait { color: var(--attention); }
+.alert-state.ok { color: var(--ready); }
+.alert-state.bad { color: var(--risk); font-weight: 500; }
+.alert-fail { margin-top: 6px; font-size: 12.5px; color: var(--risk); }
+.alert-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.danger-button { background: var(--risk); border-color: var(--risk); color: #fff; }
+.danger-button:hover { background: color-mix(in srgb, var(--risk) 85%, black); }
+
+/* Schedule, shown apart from readiness */
+.sched { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.sched svg { width: 13px; height: 13px; }
+.sched.ready { color: var(--ready); }
+.sched.attention { color: var(--attention); }
+.sched.risk { color: var(--risk); font-weight: 500; }
+.schedule-box { margin-top: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 12px; background: var(--surface); }
+.schedule-box > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 10px 0; font-size: 14px; font-weight: 500; }
+.schedule-box > summary::-webkit-details-marker { display: none; }
+.schedule-box > summary small { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted); }
+.schedule-box.ready > summary { color: var(--ready); }
+.schedule-box.attention > summary { color: var(--attention); }
+.schedule-box.risk > summary { color: var(--risk); }
+.schedule-box ul { list-style: none; margin: 0; padding: 0 0 6px; display: grid; gap: 8px; }
+.schedule-box li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; font-size: 13.5px; }
+.schedule-box li svg { width: 16px; height: 16px; margin-top: 2px; }
+.schedule-box li.ok svg { color: var(--ready); }
+.schedule-box li.attention svg { color: var(--attention); }
+.schedule-box li.conflict svg { color: var(--risk); }
+.schedule-box .provenance { margin-top: 4px; }
+.schedule-feed { padding: 4px 0 10px; font: 400 11.5px var(--mono); color: var(--muted); }

@@ -101,6 +101,23 @@ describe('dashboard auth boundary', () => {
     expect((await gateway(post('/api/messages/msg_1/retry'))).status).toBe(401);
     expect((await gateway(post('/api/outbox/msg_1/failed', { authorization: 'Bearer staff-token' }))).status).toBe(404);
   });
+  test('urgent alert routes are forwarded; unknown alert actions are not', async () => {
+    const seen: string[] = [];
+    const gateway = createGateway(config, async (input, options) => {
+      seen.push(`${options?.method} ${String(input)}`);
+      return Response.json({ ok: true });
+    }, fakeProvider);
+    const auth = { authorization: 'Bearer staff-token' };
+    expect((await gateway(request('/api/alerts', { headers: auth }))).status).toBe(200);
+    expect((await gateway(post('/api/alerts/alr_1/acknowledge', auth))).status).toBe(200);
+    expect((await gateway(post('/api/alerts/alr_1/resolve', auth, '{"note":"done"}'))).status).toBe(200);
+    expect((await gateway(post('/api/alerts/alr_1/delete', auth))).status).toBe(404);
+    expect(seen).toEqual([
+      'GET http://localhost:8787/alerts',
+      'POST http://localhost:8787/alerts/alr_1/acknowledge',
+      'POST http://localhost:8787/alerts/alr_1/resolve',
+    ]);
+  });
   test('core requests forward bearer only to fixed core and do not forward redirects or cookies', async () => {
     const gateway = createGateway(config, async (input, options) => {
       expect(String(input)).toBe('http://localhost:8787/surgeries/sur_1');

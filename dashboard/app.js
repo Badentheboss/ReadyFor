@@ -47,6 +47,8 @@ const state = {
   filter: 'all',
   tab: 'checklist',
   composer: null, // { id, action } for the requirement note being written
+  alerts: [],
+  resolving: null, // id of the alert whose resolution note is being written
   loaded: false,
 };
 let detailRequest = 0;
@@ -158,9 +160,73 @@ function renderList() {
       <span class="row-side">
         <span class="badge ${level}">${LEVEL_LABEL[level]}${open.length ? ` · ${open.length}` : ''}</span>
         ${review ? `<span class="badge review">${review} to review</span>` : `<span class="row-date">${esc(s.date)}</span>`}
+        ${scheduleChip(s.schedule)}
       </span>
     </button>`;
   }).join('');
+}
+
+// ---------- Urgent alerts ----------
+function alertCard(a, { inCase = false } = {}) {
+  const open = a.status === 'open';
+  const notified = a.notified ? `${esc(a.notified.name)} (${esc(a.notified.role)})` : 'nobody yet';
+  let status;
+  if (a.status === 'acknowledged') {
+    status = `<span class="alert-state ok">${icon('check')}Accepted by ${esc(a.acknowledgedBy ?? '')} · ${relativeTime(a.acknowledgedAt)}</span>`;
+  } else if (a.exhausted) {
+    status = `<span class="alert-state bad">${icon('alert')}Nobody on call has acknowledged. Reach coverage directly.</span>`;
+  } else {
+    const next = a.next ? ` · goes to ${esc(a.next.name)} at ${clockTime(a.escalateAfter)} if unanswered` : ' · last person on call';
+    status = `<span class="alert-state wait">${icon('clock')}Paged ${notified} ${relativeTime(a.notifiedAt)}${next}</span>`;
+  }
+  const failed = (a.notifications ?? []).filter((n) => n.deliveryStatus === 'failed');
+  const failures = failed.length
+    ? `<p class="alert-fail">${failed.map((n) => `Text to ${esc(n.contactName)} not delivered: ${esc(n.deliveryError ?? 'unknown error')}`).join('<br>')}</p>`
+    : '';
+  const resolving = state.resolving === a.id
+    ? `<form class="note-composer" data-resolve-for="${esc(a.id)}"><label for="resolve-${esc(a.id)}">How was this resolved?</label><textarea id="resolve-${esc(a.id)}" name="note" rows="2" required maxlength="600" placeholder="e.g. Called patient; mild reflux, no cardiac symptoms."></textarea><div class="row-actions"><button type="button" class="quiet-button" data-cancel-resolve>Cancel</button><button type="submit" class="primary-button">Resolve alert</button></div></form>`
+    : '';
+  const actions = resolving ? '' : `<div class="alert-actions">
+      ${open ? `<button class="primary-button danger-button" data-alert-ack="${esc(a.id)}">${icon('check')}I'll take it</button>` : ''}
+      <button class="ghost-button" data-alert-resolve="${esc(a.id)}">Resolve…</button>
+      ${inCase ? '' : `<button class="quiet-button" data-select="${esc(a.surgeryId)}">Open case</button>`}
+    </div>`;
+  return `<article class="alert ${open ? 'open' : 'taken'}">
+    <header><span class="alert-tag">${icon('alert')}Urgent</span>${inCase ? '' : `<strong>${esc(a.patientName)}</strong><span class="alert-meta">${esc(a.procedureName)}</span>`}<time>${relativeTime(a.createdAt)}</time></header>
+    <p class="alert-summary">${esc(a.summary)}</p>
+    ${status}${failures}${resolving}${actions}
+  </article>`;
+}
+
+function renderUrgent() {
+  const el = document.querySelector('#urgent');
+  if (!el) return;
+  const active = state.alerts.filter((a) => a.status !== 'resolved');
+  el.hidden = active.length === 0;
+  el.innerHTML = active.length
+    ? `<h2 class="urgent-title">${icon('alert')}${active.length} urgent ${active.length === 1 ? 'alert' : 'alerts'}</h2>${active.map((a) => alertCard(a)).join('')}`
+    : '';
+}
+
+// ---------- Schedule (kept apart from readiness) ----------
+const SCHEDULE_CLASS = { on_track: 'ready', needs_attention: 'attention', conflict: 'risk', unknown: 'neutral' };
+function scheduleChip(schedule) {
+  if (!schedule) return '';
+  return `<span class="sched ${SCHEDULE_CLASS[schedule.level] ?? 'neutral'}" title="From the scheduling feed; separate from readiness">${icon('calendar')}${esc(schedule.headline)}</span>`;
+}
+function scheduleBox(schedule) {
+  if (!schedule) return '';
+  const cls = SCHEDULE_CLASS[schedule.level] ?? 'neutral';
+  const items = (schedule.items ?? []).map((i) => `<li class="${i.status}">
+      ${icon(i.status === 'ok' ? 'check' : 'alert')}
+      <div><p><b>${esc(i.title)}</b> · ${esc(i.detail)}</p>
+      <p class="provenance"><span class="system">FHIR</span><span>${i.source.resource ? esc(i.source.resource) : 'No appointment found'}${i.source.lastUpdated ? ` · updated ${relativeTime(i.source.lastUpdated)}` : ''}</span></p></div>
+    </li>`).join('');
+  return `<details class="schedule-box ${cls}" ${schedule.level === 'conflict' ? 'open' : ''}>
+    <summary>${icon('calendar')}<span>${esc(schedule.headline)}</span><small>Scheduling · separate from readiness</small></summary>
+    ${items ? `<ul>${items}</ul>` : '<p class="task-detail">No scheduling data for this surgery.</p>'}
+    <p class="schedule-feed">${esc(schedule.feed ?? '')} · checked ${relativeTime(schedule.checkedAt)}</p>
+  </details>`;
 }
 
 function renderBoard() {
@@ -364,7 +430,9 @@ function renderCase() {
       <div class="case-name"><h2>${esc(d.name)}</h2><span class="badge ${level}">${LEVEL_LABEL[level]}</span></div>
       <p style="color:var(--ink-2);margin-top:2px">${d.age ?? '—'} · ${esc(d.procedure)}</p>
       <div class="case-meta"><span>${icon('calendar')}${esc(d.date)} · ${d.days === 0 ? 'today' : `in ${plural(d.days, 'day')}`}</span><span>${esc(d.location ?? '')}</span><span>${esc(d.surgeon ?? '')}</span></div>
+      ${(d.alerts ?? []).filter((a) => a.status !== 'resolved').map((a) => alertCard(a, { inCase: true })).join('')}
       <div class="readiness-banner ${level}"><p>${esc(d.readinessHeadline ?? d.headline ?? LEVEL_LABEL[level])}<small>${esc(sub)}</small></p></div>
+      ${scheduleBox(d.schedule)}
     </header>
     <nav class="tabs" role="tablist" aria-label="Surgery sections">${tabs.map((t) => `<button class="tab" role="tab" aria-selected="${state.tab === t.key}" data-tab="${t.key}">${t.label}${t.count ? `<span class="count">${t.count}</span>` : ''}</button>`).join('')}</nav>
     <div class="tabpanel" role="tabpanel">${body}</div>`;
@@ -373,7 +441,7 @@ function renderCase() {
 
 // Polling must not wipe what someone is typing or a note they are writing.
 function caseIsBusy() {
-  if (state.composer) return true;
+  if (state.composer || state.resolving) return true;
   const active = document.activeElement;
   if (active && caseEl.contains(active) && ['TEXTAREA', 'INPUT', 'SELECT'].includes(active.tagName)) return true;
   return [...caseEl.querySelectorAll('textarea, input[type="text"], input[type="file"]')].some((el) => el.value);
@@ -382,7 +450,11 @@ function caseIsBusy() {
 // ---------- Data ----------
 async function loadAll({ force = false } = {}) {
   try {
-    const next = await provider.listSurgeries();
+    const [next, alerts] = await Promise.all([provider.listSurgeries(), provider.listAlerts?.().catch(() => state.alerts) ?? []]);
+    if (force || JSON.stringify(alerts) !== JSON.stringify(state.alerts)) {
+      state.alerts = alerts;
+      if (!state.resolving || !document.querySelector('#urgent')?.contains(document.activeElement)) renderUrgent();
+    }
     const changed = !state.loaded || JSON.stringify(next) !== JSON.stringify(state.surgeries);
     state.surgeries = next;
     state.loaded = true;
@@ -523,6 +595,23 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (target.hasAttribute('data-cancel-compose')) { state.composer = null; renderCase(); return; }
+  if (target.dataset.alertAck) {
+    run(target, () => provider.acknowledgeAlert(target.dataset.alertAck), 'You have this alert. Escalation stopped, and the patient has been told who has it.');
+    return;
+  }
+  if (target.dataset.alertResolve) {
+    state.resolving = target.dataset.alertResolve;
+    renderUrgent();
+    if (state.detail) renderCase();
+    document.querySelector(`[data-resolve-for="${CSS.escape(state.resolving)}"] textarea`)?.focus();
+    return;
+  }
+  if (target.hasAttribute('data-cancel-resolve')) {
+    state.resolving = null;
+    renderUrgent();
+    if (state.detail) renderCase();
+    return;
+  }
   if (target.dataset.retry) {
     run(target, () => provider.retryMessage(target.dataset.retry), 'Message queued again for the patient.');
     return;
@@ -555,6 +644,13 @@ document.addEventListener('submit', (event) => {
   event.preventDefault();
   const submit = form.querySelector('[type="submit"]');
 
+  if (form.dataset.resolveFor) {
+    const note = new FormData(form).get('note')?.toString().trim();
+    if (!note) return;
+    const id = form.dataset.resolveFor;
+    run(submit, async () => { await provider.resolveAlert(id, note); state.resolving = null; }, 'Alert resolved and logged.');
+    return;
+  }
   if (form.dataset.noteFor) {
     const note = new FormData(form).get('note')?.toString().trim();
     requirementAction(submit, form.dataset.noteFor, form.dataset.action, note || undefined);
