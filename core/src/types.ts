@@ -7,6 +7,7 @@
  */
 
 import type { Escalation } from "./alerts/escalation.ts";
+import type { Rechecker } from "./recheck.ts";
 import type { AuthConfig } from "./auth/auth.ts";
 import type { ScheduleStatus } from "./clinical/schedule.ts";
 
@@ -556,6 +557,8 @@ export interface RecordCheckResult {
   outbound: Message[];
   /** Non-fatal problems, e.g. "RxClass unreachable, used local fallback". */
   warnings: string[];
+  /** Keys staff had already decided whose underlying record changed since; each gets a re-review task. */
+  needsReview?: string[];
 }
 
 /** Reads the health record, applies the procedure's requirement list, and saves the result. Idempotent. */
@@ -621,6 +624,8 @@ export interface AppDeps {
   /** Urgent escalation. Absent: alert routes return empty lists and 404s. */
   escalation?: Escalation;
   alerts?: AlertStore;
+  /** Scheduled recheck, also runnable on demand by an admin. */
+  rechecker?: Rechecker;
 }
 
 // ---------------------------------------------------------------------------

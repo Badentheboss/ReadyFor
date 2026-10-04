@@ -488,3 +488,12 @@ Each item cites its source: `{ "system": "fhir", "resource": "Appointment/harrie
 - `GET /ready` (public): `200 { ok: true }` only when the database answers; `503` otherwise. Use it for container and load-balancer health checks.
 - Gemini: `GEMINI_MODEL` (default `gemini-3.8-flash`) with `GEMINI_FALLBACK_MODELS` tried in order on 429/503/404. Classification failures are logged and fall back to keywords; extraction failures leave the photo for staff review.
 
+## 13. Scheduled recheck and re-review
+
+Every `RECHECK_INTERVAL_MINUTES` (default 60), the core rechecks each surgery in the next 14 days whose last record check is older than `RECHECK_AFTER_HOURS` (default 24). Surgeries never checked are skipped, so the first patient text is always a staff action. `POST /recheck` (admin) runs it now for every upcoming checked surgery and returns `{ checked, findings, errors }`.
+
+- A new or changed **open** requirement becomes one task, `Recheck: <title>`, for its owner, and a `recheck_findings` event.
+- If the health record changes behind a requirement staff already verified, waived or are reviewing, the decision stands; the record check reports the key in `needsReview`, logs `requirement_needs_review`, and creates one `Re-review: <title>` task.
+- Verified or pending lab evidence whose `evidence.data.collectedDate` falls outside its window for the surgery date (30 days for `preop_labs`, 90 for `a1c_recent`), for example after a reschedule, logs `evidence_stale` once and creates a `Re-review` task.
+- Reruns are safe: patient outreach is never repeated, tasks are deduplicated by title and requirement, and stale-evidence findings are logged once per collection date and surgery time.
+

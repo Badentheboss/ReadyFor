@@ -341,6 +341,13 @@ export function createApp(deps: AppDeps): Hono<Env> {
     return new Response(bytes, { headers: { "Content-Type": content.mimeType } });
   });
 
+  // Runs the scheduled recheck now, for every upcoming surgery that has been checked before.
+  app.post("/recheck", async (c) => {
+    can(c, "demo_reset");
+    if (!deps.rechecker) throw new HttpError(404, "not_found", "The scheduled recheck is not configured");
+    return c.json(await deps.rechecker.runOnce({ force: true }));
+  });
+
   app.post("/demo/reset", async (c) => {
     can(c, "demo_reset");
     const seed = deps.seed();

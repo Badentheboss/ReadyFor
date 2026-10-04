@@ -85,9 +85,10 @@ For ASI:One, open the Inspector URL printed by the agent and connect it to a mai
 - **Urgent alerts.** A patient-reported symptom pages the on-call ladder (`staff` in `db/seed/demo.json`, phones from `ONCALL_PRIMARY_PHONE`, `ONCALL_BACKUP_PHONE`, `ONCALL_LAST_PHONE`). Unacknowledged alerts move to the next person after `ESCALATION_MINUTES`. Staff accept from the urgent queue on the dashboard, from ASI:One, or by replying **ACK** to the text; only then is the patient told who has it. Clinical roles resolve alerts with a note.
 - **Delivery.** Every outbound text is queued, delivered or failed. The adapter gives up after three attempts and reports the failure; staff press **Retry send**. Approved plans show *approved → delivered → acknowledged* separately from readiness.
 - **Schedule.** A synthetic FHIR R4 Appointment feed checks the OR booking, pre-op visit and anesthesia consult. It appears as a calendar chip and a collapsible box, never in the readiness count.
+- **Scheduled recheck.** Checked surgeries are rechecked daily; new blockers, record changes behind a staff decision, and lab evidence that has aged out for the surgery date each become one staff task. Admins can run it now with `POST /recheck`.
 - **Gemini** defaults to `gemini-3.8-flash` and falls back to `GEMINI_FALLBACK_MODELS` when a model is overloaded or retired.
 
-Details for every route are in [docs/contract.md](docs/contract.md) sections 9–12.
+Details for every route are in [docs/contract.md](docs/contract.md) sections 9–13.
 
 ## Demo, deployment and submission
 

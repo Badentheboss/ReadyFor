@@ -94,6 +94,7 @@ export function createRecordCheck(deps: RecordCheckDeps): RunRecordCheck {
     // Save
     const created: string[] = [];
     const changed: string[] = [];
+    const needsReview: string[] = [];
     const flagged: Requirement[] = [];
     for (const req of procedure.requirements) {
       const want = desired.get(req.key) ?? null;
@@ -119,7 +120,34 @@ export function createRecordCheck(deps: RecordCheckDeps): RunRecordCheck {
         continue;
       }
 
-      if (PROTECTED.includes(row.status)) continue;
+      if (PROTECTED.includes(row.status)) {
+        // Staff already decided. If the record behind the finding has changed since, ask them to
+        // look again instead of overriding their decision. Updating the source makes this fire once.
+        if (want && want.source.system !== "rule" && JSON.stringify(row.source) !== JSON.stringify(want.source)) {
+          await store.updateRequirement(row.id, { source: want.source });
+          needsReview.push(req.key);
+          await store.addEvent({
+            surgeryId: surgery.id,
+            type: "requirement_needs_review",
+            summary: `The health record changed after "${row.title}" was ${row.status.replace("_", " ")}: ${want.source.detail}`,
+            actor: "system",
+            data: { key: req.key, requirementId: row.id, status: row.status },
+          });
+          const open = (await store.listTasks(surgery.id)).filter((t) => t.status === "open");
+          const title = `Re-review: ${row.title}`;
+          if (!open.some((t) => t.title === title && t.requirementId === row.id)) {
+            await store.createTask({
+              surgeryId: surgery.id,
+              requirementId: row.id,
+              title,
+              detail: `The record changed after this was ${row.status.replace("_", " ")}. ${want.source.detail}`,
+              owner: row.owner === "patient" ? "coordinator" : row.owner,
+              origin: "agent",
+            });
+          }
+        }
+        continue;
+      }
 
       if (!want) {
         if (row.status === "open") {
@@ -217,7 +245,7 @@ export function createRecordCheck(deps: RecordCheckDeps): RunRecordCheck {
     }
     await store.updateSurgery(surgery.id, { lastCheckedAt: now.toISOString() });
 
-    const result: RecordCheckResult = { surgeryId: surgery.id, created, changed, outbound, warnings };
+    const result: RecordCheckResult = { surgeryId: surgery.id, created, changed, outbound, warnings, needsReview };
     return result;
   };
 }

@@ -1,6 +1,7 @@
 /** ReadyFor core service. Wires the store, record check, conversation handler and HTTP app. */
 import seedJson from "../../db/seed/demo.json" with { type: "json" };
 import { createEscalation } from "./alerts/escalation.ts";
+import { createRechecker } from "./recheck.ts";
 import { authConfigFromEnv } from "./auth/auth.ts";
 import { createFixtureClassifier, createFixtureSource } from "./clinical/fixtures/fixtures.ts";
 import { createFinchNodeSource } from "./clinical/finchnode.ts";
@@ -57,11 +58,15 @@ await alerts.syncSeedPhones(seed);
 const escalateMinutes = Number(env.ESCALATION_MINUTES || 5);
 const escalation = createEscalation({ store, alerts, clock, clinic, escalateAfterMs: Math.max(0.25, escalateMinutes) * 60_000 });
 
+const runRecordCheck = createRecordCheck({ store, records, classifier, clock, clinic });
+const recheckHours = Number(env.RECHECK_AFTER_HOURS || 24);
+const rechecker = createRechecker({ store, runRecordCheck, clock, recheckAfterMs: recheckHours * 3_600_000 });
+
 const deps: AppDeps = {
   store,
   clock,
   clinic,
-  runRecordCheck: createRecordCheck({ store, records, classifier, clock, clinic }),
+  runRecordCheck,
   handleInbound: createInboundHandler({ store, llm, clock, clinic, onUrgent: (input) => escalation.raise(input) }),
   seed: () => seed,
   info: { llm: llm.name, database, records: useFixtures ? "fixtures" : "live" },
@@ -69,7 +74,17 @@ const deps: AppDeps = {
   corsOrigins,
   escalation,
   alerts,
+  rechecker,
 };
+
+// The scheduled recheck: hourly by default, each surgery at most once per RECHECK_AFTER_HOURS.
+const recheckMinutes = Number(env.RECHECK_INTERVAL_MINUTES || 60);
+setInterval(() => {
+  rechecker
+    .runOnce()
+    .then((s) => s.findings.length && console.log(`Scheduled recheck: ${s.findings.length} finding(s) across ${s.checked.length} surgery(ies)`))
+    .catch((err) => console.error("Scheduled recheck failed", err));
+}, recheckMinutes * 60_000);
 
 // Escalation runs on a timer so an unanswered alert moves on even when nobody has the dashboard open.
 const tickSeconds = Number(env.ESCALATION_CHECK_SECONDS || 20);
