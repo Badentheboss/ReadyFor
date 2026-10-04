@@ -62,3 +62,27 @@ test('401 refreshes once, repeated 401 requests sign-in, and 403 is not retried'
     } finally { server.stop(true); }
   }
 });
+
+test('every write is a JSON request, including actions with no payload', async () => {
+  const writes: string[] = [];
+  const server = Bun.serve({hostname:'127.0.0.1', port:0, async fetch(request) {
+    const url = new URL(request.url);
+    if (request.method === 'POST') {
+      writes.push(`${url.pathname} ${request.headers.get('content-type')} ${await request.text()}`);
+    }
+    if (url.pathname === '/surgeries') return Response.json({surgeries:[summary()]});
+    if (url.pathname === '/surgeries/sur_demo') return Response.json({...summary(), requirements:[], tasks:[]});
+    return Response.json({ok:true});
+  }});
+  const provider = createDashboardProvider({apiBaseUrl:server.url.origin, getAccessToken: async () => 'staff-session'});
+  try {
+    await provider.refreshSurgery('sur_demo');
+    await provider.resetDemo();
+    await provider.retryMessage('msg_1');
+    expect(writes).toEqual([
+      '/surgeries/sur_demo/check application/json {}',
+      '/demo/reset application/json {}',
+      '/messages/msg_1/retry application/json {}',
+    ]);
+  } finally { server.stop(true); }
+});

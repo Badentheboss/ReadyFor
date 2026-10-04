@@ -119,8 +119,10 @@ function createCoreProvider(baseUrl, config = {}) {
     return response;
   };
   const json = async (path, method = 'GET', body) => {
+    // The gateway accepts only JSON writes, so a POST without a payload still sends {}.
+    const payload = body === undefined && method !== 'GET' ? {} : body;
     const response = await authorizedFetch(path, { method,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     });
     const result = response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) throw requestError(result, response.status);
