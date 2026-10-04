@@ -213,12 +213,23 @@ const SURGERY_PATCH_COLUMNS: Record<string, PatchColumn> = {
 
 const digitsOnly = (s: string) => s.replace(/\D/g, "");
 
+/**
+ * Normalises a US number to E.164: 10 digits get +1, 11 digits starting with 1 get +.
+ * Anything else is left as written. "+2485550123" (country code forgotten) becomes "+12485550123".
+ */
+export function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return phone.trim();
+}
+
 /** Resolves "env:NAME" seed phones; empty or unset variables become null. */
 function resolveSeedPhone(phone: string | null): string | null {
   if (phone == null) return null;
-  if (!phone.startsWith("env:")) return phone;
-  const value = process.env[phone.slice(4)];
-  return value ? value : null;
+  if (!phone.startsWith("env:")) return normalizePhone(phone);
+  const value = process.env[phone.slice(4)]?.trim();
+  return value ? normalizePhone(value) : null;
 }
 
 function scheduledAtFor(now: Date, daysFromNow: number, timeOfDay: string): Date {
@@ -378,11 +389,12 @@ export function createSqlStore(db: Queryable): Store {
     },
 
     async findPatientByPhone(phone) {
-      const digits = digitsOnly(phone);
-      if (!digits) return null;
+      // Compare the last 10 digits, so "+1 248…" from iMessage matches "248…" or "+1248…" on file.
+      const digits = digitsOnly(phone).slice(-10);
+      if (digits.length < 7) return null;
       const row = await first(
         `SELECT ${PATIENT_COLS} FROM patients
-         WHERE regexp_replace(phone, '\\D', '', 'g') = $1
+         WHERE right(regexp_replace(phone, '\\D', '', 'g'), 10) = $1
          ORDER BY created_at, id LIMIT 1`,
         [digits],
       );

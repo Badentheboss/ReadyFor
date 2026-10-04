@@ -2,7 +2,7 @@
 import { newId } from "../ids.ts";
 import type { Alert, AlertNotification, AlertStore, StaffContact } from "../types.ts";
 import { NotFoundError } from "./errors.ts";
-import type { Queryable } from "./sqlStore.ts";
+import { normalizePhone, type Queryable } from "./sqlStore.ts";
 
 const ALERT_COLS =
   "id, surgery_id, patient_id, kind, summary, message_id, status, level, notified_contact_id, notified_at, escalate_after, exhausted, acknowledged_by, acknowledged_at, resolved_by, resolved_at, resolution, created_at";
@@ -71,8 +71,9 @@ const ALERT_PATCH: Record<string, string> = {
 /** Resolves "env:NAME" seed phones; empty or unset variables become null. */
 function resolvePhone(phone: string | null): string | null {
   if (phone == null) return null;
-  if (!phone.startsWith("env:")) return phone;
-  return process.env[phone.slice(4)]?.trim() || null;
+  if (!phone.startsWith("env:")) return normalizePhone(phone);
+  const value = process.env[phone.slice(4)]?.trim();
+  return value ? normalizePhone(value) : null;
 }
 
 export function createAlertStore(db: Queryable): AlertStore {

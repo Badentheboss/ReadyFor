@@ -294,3 +294,11 @@ describe("events", () => {
     expect(await store.listEvents("sur_morgan")).toEqual([]);
   });
 });
+
+import { normalizePhone } from "./sqlStore.ts";
+test("phones missing the +1 country code are normalised", () => {
+  expect(normalizePhone("+2485550123")).toBe("+12485550123");
+  expect(normalizePhone("(248) 555-0123")).toBe("+12485550123");
+  expect(normalizePhone("12485550123")).toBe("+12485550123");
+  expect(normalizePhone("+442071234567")).toBe("+442071234567");
+});
