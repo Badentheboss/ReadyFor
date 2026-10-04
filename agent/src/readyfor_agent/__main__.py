@@ -62,6 +62,22 @@ def at_risk_summary(surgeries: list[dict]) -> str:
     return "Surgeries at risk within seven days:\n" + "\n".join(selected)
 
 
+def alerts_summary(alerts: list[dict]) -> str:
+    if not alerts:
+        return "There are no active urgent alerts."
+    lines = []
+    for alert in alerts:
+        if alert.get("status") == "acknowledged":
+            state = f"accepted by {alert.get('acknowledgedBy') or 'staff'}"
+        elif alert.get("exhausted"):
+            state = "nobody on call has acknowledged it"
+        else:
+            notified = (alert.get("notified") or {}).get("name", "on-call staff")
+            state = f"waiting on {notified}"
+        lines.append(f"• {alert.get('patientName', 'A patient')}: {alert.get('summary', '')} ({state})")
+    return "Active urgent alerts:\n" + "\n".join(lines) + "\nSay ‘take Harriet's alert’ to accept one."
+
+
 def owner_from_text(text: str) -> str:
     lowered = text.casefold()
     for keyword, owner in OWNER_TERMS.items():
@@ -116,6 +132,9 @@ async def coordinator_reply(
             if queued["action"] == "verify":
                 await core.verify_requirement(queued["requirement_id"], sender=sender)
                 return f"Verified “{queued['title']}” for {queued['patient']}. The core recalculated readiness."
+            if queued["action"] == "acknowledge_alert":
+                await core.acknowledge_alert(queued["alert_id"], sender=sender)
+                return f"You have {queued['patient']}'s urgent alert. Escalation stopped, and the patient has been told who has it."
             result = await core.create_task(
                 queued["surgery_id"], queued["title"], queued["owner"], queued["detail"], sender=sender
             )
@@ -125,6 +144,20 @@ async def coordinator_reply(
             pending.pop(sender, None)
             return "Okay, I did not change anything."
         return "I have a change waiting for confirmation. Reply CONFIRM to apply it, or CANCEL to discard it."
+
+    if re.search(r"\balerts?\b", lowered):
+        alerts = await core.list_alerts(sender=sender)
+        if re.search(r"\b(take|acknowledge|accept|ack)\b", lowered):
+            open_alerts = [a for a in alerts if a.get("status") == "open"]
+            chosen = next((a for a in open_alerts if str(a.get("patientName", "")).casefold().split()[:1]
+                           and str(a.get("patientName", "")).casefold().split()[0] in lowered), None)
+            if chosen is None and len(open_alerts) == 1:
+                chosen = open_alerts[0]
+            if chosen is None:
+                return "Which open alert should I accept? Include the patient's name." if open_alerts else "There are no open urgent alerts to accept."
+            pending[sender] = {"action": "acknowledge_alert", "alert_id": chosen["id"], "patient": chosen.get("patientName", "the patient")}
+            return f"Accept the urgent alert for {chosen.get('patientName', 'this patient')} (“{chosen.get('summary', '')}”)? Reply CONFIRM to take it, or CANCEL."
+        return alerts_summary(alerts)
 
     surgeries = await core.list_surgeries(sender=sender)
     if any(phrase in lowered for phrase in ("at risk", "risk this week", "what's urgent", "what is urgent")):
@@ -168,7 +201,7 @@ async def coordinator_reply(
 
     if selected:
         return await core.surgery_brief(surgery_id(selected), sender=sender)
-    return "Ask what is at risk this week, what is blocking a patient's surgery, or ask me to assign a follow-up."
+    return "Ask what is at risk this week, what is blocking a patient's surgery, about urgent alerts, or ask me to assign a follow-up."
 
 
 def build_agent() -> Agent:

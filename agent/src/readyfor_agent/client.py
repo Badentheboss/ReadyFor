@@ -126,6 +126,16 @@ class ReadyForCoreClient:
             },
         )
 
+    async def list_alerts(self, *, sender: str) -> list[dict[str, Any]]:
+        result = await self.request_json("GET", "/alerts", sender=sender)
+        alerts = result.get("alerts") if isinstance(result, dict) else None
+        if not isinstance(alerts, list):
+            raise ValueError("Core GET /alerts response is missing its alerts array.")
+        return alerts
+
+    async def acknowledge_alert(self, alert_id: str, *, sender: str) -> dict[str, Any]:
+        return await self.request_json("POST", f"/alerts/{alert_id}/acknowledge", sender=sender, payload={})
+
     async def verify_requirement(self, requirement_id: str, *, sender: str) -> dict[str, Any]:
         return await self.request_json(
             "POST",

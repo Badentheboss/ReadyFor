@@ -166,5 +166,20 @@ class ChatSenderTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(SENDER, self.pending)
 
 
+    async def test_alerts_are_listed_and_accepted_only_after_confirmation(self):
+        alert = {"id": "alr_1", "status": "open", "patientName": "Harriet Lindqvist", "summary": "Fever since last night",
+                 "notified": {"name": "Priya Shah"}, "exhausted": False}
+        self.core.list_alerts.return_value = [alert]
+        listing = await coordinator_reply(self.core, SENDER, "Any urgent alerts?", self.pending)
+        self.assertIn("Harriet Lindqvist: Fever since last night (waiting on Priya Shah)", listing)
+        self.core.list_alerts.assert_awaited_with(sender=SENDER)
+        ask = await coordinator_reply(self.core, SENDER, "Take Harriet's alert", self.pending)
+        self.assertIn("Reply CONFIRM", ask)
+        self.core.acknowledge_alert.assert_not_awaited()
+        done = await coordinator_reply(self.core, SENDER, "confirm", self.pending)
+        self.core.acknowledge_alert.assert_awaited_once_with("alr_1", sender=SENDER)
+        self.assertIn("Escalation stopped", done)
+
+
 if __name__ == "__main__":
     unittest.main()
