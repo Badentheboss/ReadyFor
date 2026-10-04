@@ -152,7 +152,11 @@ h1 { font-size: 28px; line-height: 1.15; }
 .dot.risk { background: var(--risk); }
 .dot.attention { background: var(--attention); }
 .dot.ready { background: var(--ready); }
-.runway-track { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 4px; }
+.runway-track { display: grid; grid-template-columns: repeat(var(--cols, 14), minmax(0, 1fr)); gap: 4px; }
+.range-head { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.range-switch button { padding: 3px 9px; font-size: 12px; }
+.runway-track.weekly .day-slot { flex-direction: row; flex-wrap: wrap; justify-content: center; align-content: flex-start; min-height: 74px; }
+.runway-track.weekly .day-label b { font-size: 12px; white-space: nowrap; }
 .day { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
 .day-label { font: 500 11px var(--mono); color: var(--muted); text-align: center; line-height: 1.3; }
 .day-label b { display: block; font-size: 13px; color: var(--ink-2); font-weight: 500; }
@@ -367,6 +371,7 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--focus); out
   h1 { font-size: 24px; }
   .runway { padding: 12px 10px; }
   .runway-track { grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 10px; }
+  .runway-track.weekly { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .row { grid-template-columns: 56px minmax(0, 1fr); padding-left: 16px; }
   .row-side { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; }
   .countdown b { font-size: 21px; }

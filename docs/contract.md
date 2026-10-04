@@ -490,7 +490,7 @@ Each item cites its source: `{ "system": "fhir", "resource": "Appointment/harrie
 
 ## 13. Scheduled recheck and re-review
 
-Every `RECHECK_INTERVAL_MINUTES` (default 60), the core rechecks each surgery in the next 14 days whose last record check is older than `RECHECK_AFTER_HOURS` (default 24). Surgeries never checked are skipped, so the first patient text is always a staff action. `POST /recheck` (admin) runs it now for every upcoming checked surgery and returns `{ checked, findings, errors }`.
+Every `RECHECK_INTERVAL_MINUTES` (default 60), the core rechecks each surgery in the next `RECHECK_HORIZON_DAYS` (default 56, matching the dashboard's widest window) whose last record check is older than `RECHECK_AFTER_HOURS` (default 24). Surgeries never checked are skipped, so the first patient text is always a staff action. `POST /recheck` (admin) runs it now for every upcoming checked surgery and returns `{ checked, findings, errors }`.
 
 - A new or changed **open** requirement becomes one task, `Recheck: <title>`, for its owner, and a `recheck_findings` event.
 - If the health record changes behind a requirement staff already verified, waived or are reviewing, the decision stands; the record check reports the key in `needsReview`, logs `requirement_needs_review`, and creates one `Re-review: <title>` task.

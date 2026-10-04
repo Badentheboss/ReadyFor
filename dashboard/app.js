@@ -96,46 +96,81 @@ function kindIcon(kind) {
 }
 
 // ---------- Board ----------
+// ---------- Time window ----------
+// Two weeks is where staff act; four and eight weeks are for planning ahead.
+const RANGES = [
+  { days: 14, label: '2 weeks', phrase: 'the next two weeks' },
+  { days: 28, label: '4 weeks', phrase: 'the next four weeks' },
+  { days: 56, label: '8 weeks', phrase: 'the next eight weeks' },
+];
+state.rangeDays = (() => {
+  try {
+    const saved = Number(localStorage.getItem('readyfor.rangeDays'));
+    return RANGES.some((r) => r.days === saved) ? saved : 14;
+  } catch { return 14; }
+})();
+const currentRange = () => RANGES.find((r) => r.days === state.rangeDays) ?? RANGES[0];
+const inWindow = (s) => typeof s.days === 'number' && s.days < state.rangeDays;
+const windowed = () => state.surgeries.filter(inWindow);
+
+function renderRange() {
+  $('#range-label').textContent = `Next ${currentRange().label}`;
+  $('#range-switch').innerHTML = RANGES.map((r) => `<button type="button" role="radio" aria-checked="${r.days === state.rangeDays}" data-range="${r.days}">${r.label}</button>`).join('');
+}
+
 function renderSummary() {
   const counts = { risk: 0, attention: 0, ready: 0 };
-  state.surgeries.forEach((s) => counts[levelOf(s)]++);
-  const total = state.surgeries.length;
+  const surgeries = windowed();
+  surgeries.forEach((s) => counts[levelOf(s)]++);
+  const total = surgeries.length;
   const summary = $('#board-summary');
   if (!state.loaded) { summary.textContent = 'Loading surgeries…'; return; }
-  if (!total) { summary.textContent = 'No surgeries scheduled.'; return; }
+  if (!total) { summary.textContent = `No surgeries in ${currentRange().phrase}.`; return; }
   const parts = [];
   if (counts.risk) parts.push(`<b class="risk">${counts.risk} at risk</b>`);
   if (counts.attention) parts.push(`<b>${counts.attention}</b> need${counts.attention === 1 ? 's' : ''} attention`);
   if (counts.ready) parts.push(`<b>${counts.ready}</b> ready`);
-  summary.innerHTML = `${plural(total, 'surgery', 'surgeries')} in the next two weeks: ${parts.join(', ')}.`;
+  summary.innerHTML = `${plural(total, 'surgery', 'surgeries')} in ${currentRange().phrase}: ${parts.join(', ')}.`;
 }
 
+function marker(s) {
+  const level = levelOf(s);
+  return `<button class="marker ${level} ${s.id === state.selectedId ? 'selected' : ''}" data-select="${esc(s.id)}" title="${esc(s.name)} · ${esc(s.date)} · ${LEVEL_LABEL[level]}" aria-label="${esc(s.name)}, ${esc(s.date)}, ${LEVEL_LABEL[level]}">${esc(s.initials)}</button>`;
+}
+
+// Two weeks shows one column per day; longer windows show one column per week so the strip stays readable.
 function renderRunway() {
-  const byDay = new Map();
-  state.surgeries.forEach((s) => {
-    if (typeof s.days !== 'number' || s.days > 13) return;
-    const list = byDay.get(s.days) ?? [];
-    list.push(s);
-    byDay.set(s.days, list);
-  });
-  runwayEl.innerHTML = Array.from({ length: 14 }, (_, offset) => {
-    const date = dayAt(offset);
-    const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
-    const weekend = date.getDay() === 0 || date.getDay() === 6;
-    const markers = (byDay.get(offset) ?? []).map((s) => {
-      const level = levelOf(s);
-      return `<button class="marker ${level} ${s.id === state.selectedId ? 'selected' : ''}" data-select="${esc(s.id)}" title="${esc(s.name)} · ${LEVEL_LABEL[level]}" aria-label="${esc(s.name)}, ${esc(s.date)}, ${LEVEL_LABEL[level]}">${esc(s.initials)}</button>`;
-    }).join('');
-    return `<div class="day ${offset === 0 ? 'today' : ''} ${weekend ? 'weekend' : ''}">
-      <span class="day-label">${offset === 0 ? 'Today' : esc(weekday)}<b>${date.getDate()}</b></span>
-      <div class="day-slot">${markers}</div>
+  const weekly = state.rangeDays > 14;
+  const span = weekly ? 7 : 1;
+  const columns = state.rangeDays / span;
+  const buckets = Array.from({ length: columns }, () => []);
+  windowed().forEach((s) => buckets[Math.floor(s.days / span)]?.push(s));
+  runwayEl.classList.toggle('weekly', weekly);
+  runwayEl.style.setProperty('--cols', String(columns));
+  const short = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  runwayEl.innerHTML = buckets.map((items, i) => {
+    const start = dayAt(i * span);
+    if (weekly) {
+      const end = dayAt(i * span + 6);
+      const risk = items.filter((s) => levelOf(s) === 'risk').length;
+      return `<div class="day week ${i === 0 ? 'today' : ''}">
+        <span class="day-label">${i === 0 ? 'This week' : `Week ${i + 1}`}<b>${esc(short(start))}–${end.getMonth() === start.getMonth() ? end.getDate() : esc(short(end))}</b></span>
+        <div class="day-slot" ${risk ? `title="${risk} at risk"` : ''}>${items.map(marker).join('')}</div>
+      </div>`;
+    }
+    const weekend = start.getDay() === 0 || start.getDay() === 6;
+    const weekday = start.toLocaleDateString('en-US', { weekday: 'short' });
+    return `<div class="day ${i === 0 ? 'today' : ''} ${weekend ? 'weekend' : ''}">
+      <span class="day-label">${i === 0 ? 'Today' : esc(weekday)}<b>${start.getDate()}</b></span>
+      <div class="day-slot">${items.map(marker).join('')}</div>
     </div>`;
   }).join('');
 }
 
 function renderFilters() {
-  const counts = { all: state.surgeries.length, risk: 0, attention: 0, ready: 0 };
-  state.surgeries.forEach((s) => counts[levelOf(s)]++);
+  const surgeries = windowed();
+  const counts = { all: surgeries.length, risk: 0, attention: 0, ready: 0 };
+  surgeries.forEach((s) => counts[levelOf(s)]++);
   $('#filters').innerHTML = FILTERS.map((f) => `<button type="button" role="radio" aria-checked="${state.filter === f.key}" data-filter="${f.key}">${f.label}<span class="count">${counts[f.key]}</span></button>`).join('');
 }
 
@@ -144,9 +179,9 @@ function renderList() {
     listEl.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
     return;
   }
-  const visible = state.surgeries.filter((s) => state.filter === 'all' || levelOf(s) === state.filter);
+  const visible = windowed().filter((s) => state.filter === 'all' || levelOf(s) === state.filter);
   if (!visible.length) {
-    listEl.innerHTML = `<div class="empty">${state.surgeries.length ? 'No surgeries match this filter.' : 'No surgeries scheduled.'}</div>`;
+    listEl.innerHTML = `<div class="empty">${windowed().length ? 'No surgeries match this filter.' : `No surgeries in ${currentRange().phrase}.`}</div>`;
     return;
   }
   listEl.innerHTML = visible.map((s) => {
@@ -273,6 +308,7 @@ function renderBoard() {
   $('#task-filters').hidden = !tasks;
   $('#my-task-list').hidden = !tasks;
   renderTaskList();
+  renderRange();
   renderSummary();
   renderRunway();
   renderFilters();
@@ -635,6 +671,12 @@ document.addEventListener('click', async (event) => {
   }
   if (target.dataset.select) { select(target.dataset.select); return; }
   if (target.dataset.filter) { state.filter = target.dataset.filter; renderFilters(); renderList(); return; }
+  if (target.dataset.range) {
+    state.rangeDays = Number(target.dataset.range);
+    try { localStorage.setItem('readyfor.rangeDays', String(state.rangeDays)); } catch { /* per-viewer convenience only */ }
+    renderBoard();
+    return;
+  }
   if (target.dataset.tab) { state.tab = target.dataset.tab; state.composer = null; renderCase(); return; }
   if (target.hasAttribute('data-back')) { state.selectedId = null; state.detail = null; renderBoard(); renderCase(); return; }
   if (target.hasAttribute('data-run-check')) {

@@ -60,7 +60,9 @@ const escalation = createEscalation({ store, alerts, clock, clinic, escalateAfte
 
 const runRecordCheck = createRecordCheck({ store, records, classifier, clock, clinic });
 const recheckHours = Number(env.RECHECK_AFTER_HOURS || 24);
-const rechecker = createRechecker({ store, runRecordCheck, clock, recheckAfterMs: recheckHours * 3_600_000 });
+// Matches the dashboard's widest planning window, so problems weeks out are still found early.
+const recheckHorizonDays = Number(env.RECHECK_HORIZON_DAYS || 56);
+const rechecker = createRechecker({ store, runRecordCheck, clock, recheckAfterMs: recheckHours * 3_600_000, horizonDays: recheckHorizonDays });
 
 const deps: AppDeps = {
   store,
