@@ -86,3 +86,41 @@ test('every write is a JSON request, including actions with no payload', async (
     ]);
   } finally { server.stop(true); }
 });
+
+test('task filters are encoded and lastCheckedAt survives detail mapping', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/tasks') {
+      expect(url.searchParams.get('owner')).toBe('nurse & surgeon');
+      expect(url.searchParams.get('status')).toBe('all');
+      return Response.json({ tasks: [{ id: 'tsk_demo', surgeryId: 'sur_demo' }] });
+    }
+    return Response.json({ ...summary(), surgery: { ...summary().surgery, lastCheckedAt: '2026-10-04T12:00:00Z' }, requirements: [], tasks: [] });
+  }) as unknown as typeof fetch;
+  const provider = createDashboardProvider({ apiBaseUrl: 'http://core.test' });
+  try {
+    expect(await provider.listTasks({ owner: 'nurse & surgeon', status: 'all' })).toEqual([{ id: 'tsk_demo', surgeryId: 'sur_demo' }]);
+    expect((await provider.getSurgery('sur_demo'))?.lastCheckedAt).toBe('2026-10-04T12:00:00Z');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('mock tasks filter owners and status and share completion with case details', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json({ surgeries: [{
+    id: 'sur_mock', patient: { name: 'Morgan Mock', initials: 'MM' }, procedure: 'Demo',
+    surgeryDate: '2026-10-08', readiness: 'ready', blockers: [],
+    tasks: [{ title: 'Call clinic', owner: 'Nurse' }, { title: 'Arrange ride', owner: 'Coordinator' }],
+  }] })) as unknown as typeof fetch;
+  const provider = createDashboardProvider({ provider: 'mock' });
+  try {
+    const tasks = await provider.listTasks({ owner: 'nurse' });
+    expect(tasks.length).toBe(1);
+    expect(tasks[0].patientName).toBe('Morgan Mock');
+    await provider.completeTask(tasks[0].id);
+    expect(await provider.listTasks({ owner: 'nurse' })).toEqual([]);
+    expect((await provider.listTasks({ owner: 'nurse', status: 'done' }))[0].status).toBe('done');
+    expect((await provider.getSurgery('sur_mock'))?.tasks[0].status).toBe('done');
+    expect((await provider.listTasks({ status: 'all' })).length).toBe(2);
+  } finally { globalThis.fetch = originalFetch; }
+});

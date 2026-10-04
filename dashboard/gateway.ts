@@ -91,7 +91,7 @@ export function createGateway(config: GatewayConfig, coreFetch: FetchTransport =
     }
     const path = provider ? url.pathname.slice('/auth/provider/'.length) : url.pathname.slice('/api'.length);
     const routeAllowed = provider ? providerRoutes[path] === request.method :
-      request.method === 'GET' ? /^\/(me|health|surgeries|alerts)$/.test(path)
+      request.method === 'GET' ? /^\/(me|health|surgeries|alerts|tasks)$/.test(path)
         || /^\/surgeries\/[A-Za-z0-9_-]+(\/brief)?$/.test(path)
         || /^\/documents\/[A-Za-z0-9_-]+\/content$/.test(path)
         : /^\/(tasks|demo\/reset|messages\/inbound)$/.test(path)

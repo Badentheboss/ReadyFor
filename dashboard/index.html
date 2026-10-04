@@ -50,10 +50,10 @@
         </figure>
 
         <div class="list-head">
-          <h2>Upcoming surgeries</h2>
+          <div class="view-heading"><h2 id="list-title">Upcoming surgeries</h2><button type="button" class="ghost-button" id="view-toggle" data-view-toggle aria-pressed="false">My tasks</button></div>
           <div class="segmented" role="radiogroup" aria-label="Filter by readiness" id="filters"></div>
         </div>
-        <div class="surgery-list" id="surgery-list" aria-live="polite"></div>
+        <div class="task-filters" id="task-filters" hidden><label>Owner<select id="task-owner"><option value="">All owners</option><option value="coordinator">Coordinator</option><option value="nurse">Nurse</option><option value="surgeon">Surgeon</option><option value="patient">Patient</option></select></label><label>Status<select id="task-status"><option value="open">Open</option><option value="done">Done</option><option value="all">All</option></select></label></div><div class="my-task-list" id="my-task-list" aria-live="polite" hidden></div><div class="surgery-list" id="surgery-list" aria-live="polite"></div>
         <p class="footnote">Synthetic demo data. Readiness follows documented rules; every clinical decision is made by staff.</p>
       </section>
 

@@ -1,6 +1,8 @@
 """Fetch.ai chat agent for documented ReadyFor coordinator operations."""
 
 from datetime import datetime, timezone
+from collections.abc import Callable
+from time import monotonic
 import re
 from uuid import uuid4
 
@@ -36,18 +38,24 @@ def surgery_id(item: dict) -> str:
     return str(item.get("surgery", {}).get("id", ""))
 
 
-def find_surgery(surgeries: list[dict], text: str) -> dict | None:
+def surgery_matches(surgeries: list[dict], text: str) -> list[dict]:
+    """Prefer explicit identifiers; never pick one of several name matches."""
     lowered = text.casefold()
-    for surgery in surgeries:
-        patient = surgery.get("patient", {})
-        if surgery_id(surgery).casefold() in lowered or surgery_name(surgery).casefold() in lowered:
-            return surgery
-        display = surgery_name(surgery)
-        if display.casefold().split()[0] in lowered:
-            return surgery
-        if patient.get("finchnodeSubject") and str(patient["finchnodeSubject"]).casefold() in lowered:
-            return surgery
-    return None
+
+    def mentioned(value: str) -> bool:
+        return bool(value and re.search(rf"(?<!\w){re.escape(value.casefold())}(?!\w)", lowered))
+
+    exact = [item for item in surgeries
+             if mentioned(surgery_id(item)) or mentioned(surgery_name(item))]
+    if exact:
+        return exact
+    return [item for item in surgeries
+            if surgery_name(item).split() and mentioned(surgery_name(item).split()[0])]
+
+
+def find_surgery(surgeries: list[dict], text: str) -> dict | None:
+    matches = surgery_matches(surgeries, text)
+    return matches[0] if len(matches) == 1 else None
 
 
 def at_risk_summary(surgeries: list[dict]) -> str:
@@ -120,12 +128,19 @@ async def coordinator_reply(
     sender: str,
     text: str,
     pending: dict[str, dict],
+    clock: Callable[[], float] = monotonic,
 ) -> str:
     if not core.is_configured:
         return "The ReadyFor service URL is not set. Configure READYFOR_CORE_URL and try again."
 
     lowered = text.casefold().strip()
     queued = pending.get(sender)
+    now = clock()
+    if queued and now - queued.get("created_at", float("-inf")) >= 600:
+        pending.pop(sender, None)
+        queued = None
+        if lowered in {"confirm", "yes", "confirm it", "do it", "approve"}:
+            return "That request expired. Please ask again before confirming."
     if queued:
         if lowered in {"confirm", "yes", "confirm it", "do it", "approve"}:
             pending.pop(sender, None)
@@ -155,7 +170,7 @@ async def coordinator_reply(
                 chosen = open_alerts[0]
             if chosen is None:
                 return "Which open alert should I accept? Include the patient's name." if open_alerts else "There are no open urgent alerts to accept."
-            pending[sender] = {"action": "acknowledge_alert", "alert_id": chosen["id"], "patient": chosen.get("patientName", "the patient")}
+            pending[sender] = {"created_at": now, "action": "acknowledge_alert", "alert_id": chosen["id"], "patient": chosen.get("patientName", "the patient")}
             return f"Accept the urgent alert for {chosen.get('patientName', 'this patient')} (“{chosen.get('summary', '')}”)? Reply CONFIRM to take it, or CANCEL."
         return alerts_summary(alerts)
 
@@ -163,6 +178,9 @@ async def coordinator_reply(
     if any(phrase in lowered for phrase in ("at risk", "risk this week", "what's urgent", "what is urgent")):
         return at_risk_summary(surgeries)
 
+    matches = surgery_matches(surgeries, text)
+    if len(matches) > 1:
+        return "Which patient did you mean: " + " or ".join(surgery_name(item) for item in matches) + "?"
     selected = find_surgery(surgeries, text)
     if any(word in lowered for word in ("blocking", "blocker", "brief", "readiness", "what is happening")):
         if not selected:
@@ -177,6 +195,7 @@ async def coordinator_reply(
         if not requirement:
             return "I couldn't identify one open requirement from that message. Include a requirement name, such as ‘verify pre-op blood work for Harriet’."
         pending[sender] = {
+            "created_at": now,
             "action": "verify",
             "requirement_id": requirement["id"],
             "title": requirement["title"],
@@ -190,6 +209,7 @@ async def coordinator_reply(
         owner = owner_from_text(text)
         title = task_title(text, surgery_name(selected))
         pending[sender] = {
+            "created_at": now,
             "action": "task",
             "surgery_id": surgery_id(selected),
             "patient": surgery_name(selected),

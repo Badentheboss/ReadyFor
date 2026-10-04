@@ -42,6 +42,11 @@ const CLEARED = ['satisfied', 'verified', 'waived'];
 
 const state = {
   surgeries: [],
+  view: 'surgeries',
+  tasks: [],
+  tasksLoaded: false,
+  taskOwner: staff.membership.role === 'admin' ? '' : staff.membership.role,
+  taskStatus: 'open',
   selectedId: null,
   detail: null,
   filter: 'all',
@@ -52,6 +57,7 @@ const state = {
   loaded: false,
 };
 let detailRequest = 0;
+let detailNeedsRender = false;
 
 const $ = (selector) => document.querySelector(selector);
 const listEl = $('#surgery-list');
@@ -229,7 +235,44 @@ function scheduleBox(schedule) {
   </details>`;
 }
 
+function renderTaskList() {
+  const el = $('#my-task-list');
+  if (el.contains(document.activeElement) && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+  el.innerHTML = !state.tasksLoaded ? '<div class="empty">Loading tasks…</div>'
+    : !state.tasks.length ? '<div class="empty">No tasks match these filters.</div>'
+    : state.tasks.map((task) => `<article class="my-task">
+      <div><strong>${esc(task.title)}</strong><p><button class="quiet-button task-patient" data-select="${esc(task.surgeryId)}">${esc(task.patientName)}</button></p><small>${esc(task.procedureName)}</small></div>
+      <span class="badge neutral">${esc(task.owner)}</span>
+      <time datetime="${esc(task.scheduledAt)}">${esc(new Date(task.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }))}</time>
+      ${task.status === 'open' ? `<button class="ghost-button" data-complete="${esc(task.id)}">Mark done</button>` : '<span class="badge ready">Done</span>'}
+    </article>`).join('');
+}
+
+let taskRequest = 0;
+async function loadTasks() {
+  const ticket = ++taskRequest;
+  try {
+    const tasks = await provider.listTasks({ owner: state.taskOwner, status: state.taskStatus });
+    if (ticket !== taskRequest) return;
+    state.tasks = tasks;
+    state.tasksLoaded = true;
+    renderTaskList();
+  } catch (error) {
+    if (ticket !== taskRequest) return;
+    $('#my-task-list').innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+  }
+}
+
 function renderBoard() {
+  const tasks = state.view === 'tasks';
+  $('#list-title').textContent = tasks ? 'My tasks' : 'Upcoming surgeries';
+  $('#view-toggle').textContent = tasks ? 'Upcoming surgeries' : 'My tasks';
+  $('#view-toggle').setAttribute('aria-pressed', String(tasks));
+  $('#filters').hidden = tasks;
+  listEl.hidden = tasks;
+  $('#task-filters').hidden = !tasks;
+  $('#my-task-list').hidden = !tasks;
+  renderTaskList();
   renderSummary();
   renderRunway();
   renderFilters();
@@ -430,6 +473,7 @@ function renderCase() {
       <div class="case-name"><h2>${esc(d.name)}</h2><span class="badge ${level}">${LEVEL_LABEL[level]}</span></div>
       <p style="color:var(--ink-2);margin-top:2px">${d.age ?? '—'} · ${esc(d.procedure)}</p>
       <div class="case-meta"><span>${icon('calendar')}${esc(d.date)} · ${d.days === 0 ? 'today' : `in ${plural(d.days, 'day')}`}</span><span>${esc(d.location ?? '')}</span><span>${esc(d.surgeon ?? '')}</span></div>
+      <p class="record-checked">${d.lastCheckedAt ? `Record checked ${relativeTime(d.lastCheckedAt)}` : 'Record not checked yet'}</p>
       ${(d.alerts ?? []).filter((a) => a.status !== 'resolved').map((a) => alertCard(a, { inCase: true })).join('')}
       <div class="readiness-banner ${level}"><p>${esc(d.readinessHeadline ?? d.headline ?? LEVEL_LABEL[level])}<small>${esc(sub)}</small></p></div>
       ${scheduleBox(d.schedule)}
@@ -462,13 +506,14 @@ async function loadAll({ force = false } = {}) {
     if (!state.selectedId && next.length && window.matchMedia('(min-width: 1101px)').matches) state.selectedId = next[0].id;
     if (changed || force) renderBoard();
     setMode(provider.mode === 'mock' ? 'mock' : 'live');
+    if (state.view === 'tasks') await loadTasks();
     if (state.selectedId) await loadDetail(state.selectedId, { force });
     else renderCase();
   } catch (error) {
     setMode('offline');
     state.loaded = true;
     renderBoard();
-    caseEl.innerHTML = `<div class="case-empty"><p>${esc(error.message)}</p><p style="margin-top:10px">Start the core with <code>bun start</code>; this page reconnects on its own.</p></div>`;
+    if (!caseIsBusy()) caseEl.innerHTML = `<div class="case-empty"><p>${esc(error.message)}</p><p style="margin-top:10px">Start the core with <code>bun start</code>; this page reconnects on its own.</p></div>`;
   }
 }
 
@@ -479,7 +524,10 @@ async function loadDetail(id, { force = false } = {}) {
   if (ticket !== detailRequest || id !== state.selectedId) return;
   const changed = JSON.stringify(next) !== JSON.stringify(state.detail);
   state.detail = next;
-  if (force || (changed && !caseIsBusy())) renderCase();
+  detailNeedsRender ||= force || changed;
+  if (!caseIsBusy() && detailNeedsRender) { renderCase(); detailNeedsRender = false; }
+  const checked = caseEl.querySelector('.record-checked');
+  if (checked) checked.textContent = next.lastCheckedAt ? `Record checked ${relativeTime(next.lastCheckedAt)}` : 'Record not checked yet';
 }
 
 async function select(id) {
@@ -579,6 +627,12 @@ document.addEventListener('click', async (event) => {
   const target = event.target.closest('button');
   if (!target || target.closest('dialog')) return;
 
+  if (target.hasAttribute('data-view-toggle')) {
+    state.view = state.view === 'tasks' ? 'surgeries' : 'tasks';
+    renderBoard();
+    if (state.view === 'tasks') await loadTasks();
+    return;
+  }
   if (target.dataset.select) { select(target.dataset.select); return; }
   if (target.dataset.filter) { state.filter = target.dataset.filter; renderFilters(); renderList(); return; }
   if (target.dataset.tab) { state.tab = target.dataset.tab; state.composer = null; renderCase(); return; }
@@ -673,7 +727,15 @@ document.addEventListener('submit', (event) => {
   }
 });
 
+$('#task-owner').value = state.taskOwner;
 document.addEventListener('change', (event) => {
+  if (event.target.id === 'task-owner' || event.target.id === 'task-status') {
+    state.taskOwner = $('#task-owner').value;
+    state.taskStatus = $('#task-status').value;
+    state.tasksLoaded = false;
+    renderTaskList();
+    void loadTasks();
+  }
   if (event.target.name === 'attachment') {
     const label = $('#attach-label');
     if (label) label.textContent = event.target.files?.[0]?.name ?? 'Attach';
