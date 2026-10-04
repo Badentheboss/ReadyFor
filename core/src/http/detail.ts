@@ -1,4 +1,5 @@
 import type { Message, Outreach, Readiness, Requirement, Store, Surgery, SurgeryDetail, SurgerySummary, Task, Patient } from "../types.ts";
+import { scheduleFor } from "../clinical/schedule.ts";
 import { blockerSummaries, computeReadiness } from "../readiness.ts";
 import { notFound } from "./errors.ts";
 
@@ -24,6 +25,7 @@ export async function buildSummary(store: Store, surgery: Surgery, now: Date): P
     patient,
     readiness: computeReadiness(surgery, requirements, now),
     blockers: blockerSummaries(requirements),
+    schedule: scheduleSummary(surgery, patient, now),
   };
 }
 
@@ -47,7 +49,13 @@ export async function buildDetail(store: Store, surgery: Surgery, now: Date): Pr
     events,
     outreach: buildOutreach(requirements, messages),
     alerts: [],
+    schedule: scheduleFor(surgery, patient, now),
   };
+}
+
+function scheduleSummary(surgery: Surgery, patient: Patient, now: Date) {
+  const { level, headline } = scheduleFor(surgery, patient, now);
+  return { level, headline };
 }
 
 /** One entry per requirement whose approved template produced a patient message. */

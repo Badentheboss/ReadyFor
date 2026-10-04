@@ -8,6 +8,7 @@
 
 import type { Escalation } from "./alerts/escalation.ts";
 import type { AuthConfig } from "./auth/auth.ts";
+import type { ScheduleStatus } from "./clinical/schedule.ts";
 
 // ---------------------------------------------------------------------------
 // Domain
@@ -263,6 +264,8 @@ export interface SurgerySummary {
   patient: Patient;
   readiness: Readiness;
   blockers: BlockerSummary[];
+  /** Scheduling at a glance; the detail has the full findings. */
+  schedule: Pick<ScheduleStatus, "level" | "headline">;
 }
 
 export interface SurgeryDetail {
@@ -278,6 +281,8 @@ export interface SurgeryDetail {
   outreach: Outreach[];
   /** Urgent alerts for this surgery, newest first, including resolved ones. */
   alerts: AlertView[];
+  /** Scheduling status from the FHIR feed. Never part of readiness. */
+  schedule: ScheduleStatus;
 }
 
 /**

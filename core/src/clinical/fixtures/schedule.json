@@ -1,0 +1,15 @@
+{
+  "sur_harriet": [
+    { "key": "or_case", "status": "booked", "offsetMinutes": 0, "updatedHoursAgo": 30 },
+    { "key": "preop_visit", "status": "proposed", "offsetMinutes": -4320, "updatedHoursAgo": 6 }
+  ],
+  "sur_morgan": [
+    { "key": "or_case", "status": "booked", "offsetMinutes": 0, "updatedHoursAgo": 52 },
+    { "key": "preop_visit", "status": "fulfilled", "offsetMinutes": -5760, "updatedHoursAgo": 20 },
+    { "key": "anesthesia_consult", "status": "booked", "offsetMinutes": -5700, "updatedHoursAgo": 52 }
+  ],
+  "sur_jordan": [
+    { "key": "or_case", "status": "booked", "offsetMinutes": 120, "updatedHoursAgo": 3 },
+    { "key": "preop_visit", "status": "booked", "offsetMinutes": -10080, "updatedHoursAgo": 70 }
+  ]
+}
