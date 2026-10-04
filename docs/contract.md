@@ -157,7 +157,7 @@ All surgeries, soonest first. Response `{ "surgeries": SurgerySummary[] }`.
 
 ### GET /surgeries/:id
 
-Response is a `SurgeryDetail`: `{ surgery, patient, readiness, requirements, tasks, messages, documents, events, outreach }`. Lists are oldest first, except `events`, which is newest first and capped at 50. A requirement in full:
+Response is a `SurgeryDetail`: `{ surgery, patient, readiness, requirements, tasks, messages, documents, events, outreach, alerts, schedule }`. `GET /surgeries` summaries also carry `schedule: { level, headline }`. Lists are oldest first, except `events`, which is newest first and capped at 50. A requirement in full:
 
 ```json
 {
@@ -402,6 +402,9 @@ Auth is on when the core has `NEON_AUTH_BASE_URL`. Every route except `GET /heal
 | `POST /messages/inbound` with `imessage` | no | no | no | yes | no |
 | `GET /outbox`, `POST /outbox/:id/sent`, `POST /outbox/:id/failed` | no | no | yes | yes | no |
 | `POST /messages/:id/retry` | yes | yes | yes | no | no |
+| `GET /alerts` | yes | yes | yes | no | yes |
+| `POST /alerts/:id/acknowledge` | yes | yes | yes | no | as the linked person |
+| `POST /alerts/:id/resolve` | **no** | yes | yes | no | no |
 | `POST /demo/reset` | no | no | yes | no | no |
 
 ### GET /me
@@ -425,3 +428,59 @@ With auth off: `{ "identity": { "kind": "open" }, "actor": null, "auth": "off" }
 
 - Send `Authorization: Bearer $AGENT_SERVICE_TOKEN` and `X-ReadyFor-Sender: <sender>` on every request, using the ASI:One sender of the chat message being handled.
 - A 403 means the sender is not linked, or their role cannot do that action. Tell them so; do not retry.
+
+## 10. Urgent escalation
+
+A message classified `health_concern` raises an **alert** in addition to the blocking `health_review` requirement and the nurse task. The patient is told the concern was sent to the care team as urgent; they are not promised a call.
+
+The **on-call ladder** is `staff_contacts`, ordered by `onCallRank`. The demo ladder comes from `db/seed/demo.json` (`staff`) and is re-synced on every start, so `ONCALL_PRIMARY_PHONE`, `ONCALL_BACKUP_PHONE` and `ONCALL_LAST_PHONE` in `.env` take effect without a reset. `DEMO_PATIENT_PHONE` is re-applied on start the same way.
+
+1. The first contact is texted at once. Staff texts travel through `GET /outbox?channel=imessage` with ids starting `ntf_`, so the adapter sends, retries and reports them like patient messages (`POST /outbox/:id/sent|failed`). A contact with no phone gets a `failed` notification and the clock keeps running.
+2. If nobody acknowledges within `ESCALATION_MINUTES` (default 5), the next contact is texted. The core checks every `ESCALATION_CHECK_SECONDS` (default 20).
+3. After the last contact, the alert is marked `exhausted` and an `alert_unanswered` event is written.
+4. **Acknowledge** from the dashboard or ASI:One, or by replying `ACK` (also `ok`, `yes`, `on it`) from the paged phone. Escalation stops, and only now is the patient texted the name of the person who has it.
+5. **Resolve** with a required note (clinical roles).
+
+A second symptom message while an alert is live joins it (`alert_updated`) instead of paging again. If one phone is both a demo patient and an on-call contact, only an `ACK` while an alert is open is treated as staff; everything else is the patient.
+
+### GET /alerts
+
+Active alerts, newest first; `?status=all` includes resolved ones. Response `{ "alerts": AlertView[] }`:
+
+```json
+{ "id": "alr_k2", "surgeryId": "sur_harriet", "patientName": "Harriet Lindqvist", "procedureName": "Total knee replacement (right)",
+  "summary": "Patient reports chest pain since this morning", "status": "open", "level": 0, "exhausted": false,
+  "notified": { "name": "Priya Shah", "role": "nurse" }, "notifiedAt": "2026-10-04T03:10:00.000Z",
+  "escalateAfter": "2026-10-04T03:15:00.000Z", "next": { "name": "Dr. Avery Demo", "role": "surgeon" },
+  "acknowledgedBy": null, "acknowledgedAt": null, "resolvedBy": null, "resolution": null,
+  "notifications": [ { "contactName": "Priya Shah", "contactRole": "nurse", "level": 0, "deliveryStatus": "sent", "deliveryError": null } ] }
+```
+
+### POST /alerts/:id/acknowledge
+
+No body needed. `open` → `acknowledged`; anything else is 409. Response `{ "alert": AlertView }`.
+
+### POST /alerts/:id/resolve
+
+Request `{ "note": string }` (required, 400 `note_required` otherwise). Response `{ "alert": AlertView }`.
+
+Events: `alert_raised`, `alert_notified`, `alert_escalated`, `alert_notification_failed`, `alert_updated`, `alert_acknowledged`, `alert_resolved`, `alert_unanswered`.
+
+## 11. Schedule indicators
+
+`schedule` comes from a synthetic FHIR R4 `Appointment` feed (`core/src/clinical/fixtures/schedule.json`) and is never part of readiness. Rules:
+
+| Item | Conflict | Needs attention |
+| --- | --- | --- |
+| Operating room booking | missing, not `booked`, or more than 15 minutes from `scheduledAt` | |
+| Pre-op clinic visit | | missing, not confirmed, or within 24 hours of surgery |
+| Anesthesia consult | | required at age 65 or older and not booked |
+
+Each item cites its source: `{ "system": "fhir", "resource": "Appointment/harriet-or-case", "lastUpdated": "..." }`. Levels: `on_track`, `needs_attention`, `conflict`, `unknown` (no feed data).
+
+## 12. Operations
+
+- `GET /health` (public): modes in use.
+- `GET /ready` (public): `200 { ok: true }` only when the database answers; `503` otherwise. Use it for container and load-balancer health checks.
+- Gemini: `GEMINI_MODEL` (default `gemini-3.8-flash`) with `GEMINI_FALLBACK_MODELS` tried in order on 429/503/404. Classification failures are logged and fall back to keywords; extraction failures leave the photo for staff review.
+

@@ -80,8 +80,23 @@ The agent uses Fetch.ai’s Chat Protocol and sends its service token plus the i
 
 For ASI:One, open the Inspector URL printed by the agent and connect it to a mailbox through Agentverse. The mailbox receives ASI:One messages without exposing the agent’s local port. Link the incoming sender to a staff entry in `STAFF_ALLOWLIST` before reads or writes will be permitted. Send a greeting through ASI:One and read the agent's `ReadyFor chat sender` log to obtain that address; it is not ReadyFor's own address. The core URL must be reachable by the agent process; keep the agent seed and any account credentials out of Git and out of chat.
 
+## Urgent escalation, delivery and schedule
+
+- **Urgent alerts.** A patient-reported symptom pages the on-call ladder (`staff` in `db/seed/demo.json`, phones from `ONCALL_PRIMARY_PHONE`, `ONCALL_BACKUP_PHONE`, `ONCALL_LAST_PHONE`). Unacknowledged alerts move to the next person after `ESCALATION_MINUTES`. Staff accept from the urgent queue on the dashboard, from ASI:One, or by replying **ACK** to the text; only then is the patient told who has it. Clinical roles resolve alerts with a note.
+- **Delivery.** Every outbound text is queued, delivered or failed. The adapter gives up after three attempts and reports the failure; staff press **Retry send**. Approved plans show *approved → delivered → acknowledged* separately from readiness.
+- **Schedule.** A synthetic FHIR R4 Appointment feed checks the OR booking, pre-op visit and anesthesia consult. It appears as a calendar chip and a collapsible box, never in the readiness count.
+- **Gemini** defaults to `gemini-3.8-flash` and falls back to `GEMINI_FALLBACK_MODELS` when a model is overloaded or retired.
+
+Details for every route are in [docs/contract.md](docs/contract.md) sections 9–12.
+
+## Demo, deployment and submission
+
+- [docs/demo-script.md](docs/demo-script.md): a timed three-minute run with a pre-flight list and fixes.
+- [docs/deploy.md](docs/deploy.md): processes, Docker images, settings per process, and the Photon shared-line rule.
+- [docs/submission.md](docs/submission.md): Devpost text, track map and the final checklist.
+
 ## Photon and environment
 
-The Spectrum adapter under `imessage/` is a separate process that calls the core. Configure `PROJECT_ID`, `PROJECT_SECRET`, and `DEMO_PATIENT_PHONE` in the root `.env`, then start it with `bun run imessage`. Test the live connection from a phone; the simulated dashboard channel works without iMessage.
+The Spectrum adapter under `imessage/` is a separate process that calls the core. Configure `PROJECT_ID`, `PROJECT_SECRET`, `IMESSAGE_SERVICE_TOKEN` and `DEMO_PATIENT_PHONE` in the root `.env`, then start it with `bun run imessage`. On Photon's shared plans, every number you text must be a **User** on the Photon project and must have texted the line once; otherwise sends fail with "Target not allowed". Test the live connection from a phone; the simulated dashboard channel works without iMessage.
 
 The shared API and workflow rules are in [docs/contract.md](docs/contract.md). Use synthetic data only. `DATABASE_URL` should point to the hackathon/demo database, never a real clinical system.

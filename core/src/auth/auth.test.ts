@@ -77,6 +77,12 @@ describe("authentication", () => {
     expect(r.json.auth).toBe("neon");
   });
 
+  test("readiness probe stays public", async () => {
+    const r = await call("GET", "/ready");
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({ ok: true, database: "memory" });
+  });
+
   test("anonymous reads and writes get 401", async () => {
     expect((await call("GET", "/surgeries")).status).toBe(401);
     expect((await call("POST", "/demo/reset")).status).toBe(401);

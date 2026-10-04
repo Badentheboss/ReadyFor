@@ -79,6 +79,16 @@ export function createApp(deps: AppDeps): Hono<Env> {
     }),
   );
 
+  // For load balancers and container health checks: 200 only when the database answers.
+  app.get("/ready", async (c) => {
+    try {
+      await store.listSurgeries();
+      return c.json({ ok: true, database: deps.info.database });
+    } catch {
+      return c.json({ ok: false, database: deps.info.database }, 503);
+    }
+  });
+
   // Everything below /health needs a caller. With auth off every caller is trusted ("open").
   app.use("*", async (c, next) => {
     const identity: Identity = auth
