@@ -284,6 +284,8 @@ export interface SurgeryDetail {
   alerts: AlertView[];
   /** Scheduling status from the FHIR feed. Never part of readiness. */
   schedule: ScheduleStatus;
+  /** Backup patients for this slot. */
+  standby?: StandbyView;
 }
 
 /**
@@ -385,6 +387,8 @@ export interface NewEvent {
 
 /** Shape of db/seed/demo.json. */
 export interface SeedData {
+  /** Synthetic waiting-list patients who could take a slot that opens up. */
+  standby?: StandbyCandidate[];
   /** The on-call ladder. Synced on every start. */
   staff?: Array<{ id: Id; name: string; role: StaffRole; phone: string | null; onCallRank: number }>;
   patients: Array<{
@@ -709,4 +713,31 @@ export interface AlertStore {
   updateNotification(id: Id, patch: Pick<AlertNotification, "deliveryStatus" | "deliveryError">): Promise<AlertNotification>;
   /** Re-applies "env:NAME" phones from the seed, so changing .env takes effect without a demo reset. */
   syncSeedPhones(seed: SeedData): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Standby (backup patients for an at-risk slot)
+// ---------------------------------------------------------------------------
+
+export interface StandbyCandidate {
+  id: string;
+  name: string;
+  age: number;
+  procedureCode: string;
+  surgeon: string;
+  /** How much notice they need to come in. */
+  noticeHours: number;
+  waitingSinceDays: number;
+  note: string;
+}
+
+export type StandbyStatus = "suggested" | "offered" | "accepted" | "declined";
+
+export interface StandbyView {
+  /** Backups are suggested only when the slot is at real risk: open blockers and 7 days or less out. */
+  eligible: boolean;
+  reason: string;
+  candidates: Array<StandbyCandidate & { status: StandbyStatus; updatedAt: IsoDateTime | null; by: string | null; canMakeIt: boolean }>;
+  /** The candidate who accepted, if any. */
+  confirmed: string | null;
 }

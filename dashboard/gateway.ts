@@ -95,7 +95,7 @@ export function createGateway(config: GatewayConfig, coreFetch: FetchTransport =
         || /^\/surgeries\/[A-Za-z0-9_-]+(\/brief)?$/.test(path)
         || /^\/documents\/[A-Za-z0-9_-]+\/content$/.test(path)
         : /^\/(tasks|demo\/reset|messages\/inbound)$/.test(path)
-          || /^\/surgeries\/[A-Za-z0-9_-]+\/check$/.test(path)
+          || /^\/surgeries\/[A-Za-z0-9_-]+\/(check|standby)$/.test(path)
           || /^\/(tasks|requirements)\/[A-Za-z0-9_-]+\/actions$/.test(path)
           || /^\/messages\/[A-Za-z0-9_-]+\/retry$/.test(path)
           || /^\/alerts\/[A-Za-z0-9_-]+\/(acknowledge|resolve)$/.test(path);

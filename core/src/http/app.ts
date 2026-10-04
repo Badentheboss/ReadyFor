@@ -12,6 +12,7 @@ import {
 } from "../auth/auth.ts";
 import { AlertTransitionError } from "../alerts/escalation.ts";
 import { NotFoundError } from "../store/errors.ts";
+import { applyStandbyAction, StandbyError, standbyFor } from "../standby.ts";
 import type { AppDeps, InboundAttachment, InboundInput } from "../types.ts";
 import { UnknownSenderError } from "../types.ts";
 import { applyRequirementAction, applyTaskAction, createTaskFromBody } from "./actions.ts";
@@ -22,6 +23,7 @@ import {
   OWNERS,
   optionalString,
   readJsonObject,
+  requireString,
   requireOneOf,
   type Body,
 } from "./validate.ts";
@@ -111,6 +113,7 @@ export function createApp(deps: AppDeps): Hono<Env> {
   /** Surgery detail plus its urgent alerts. */
   const detailFor = async (surgery: Awaited<ReturnType<typeof requireSurgery>>) => {
     const detail = await buildDetail(store, surgery, clock.now());
+    detail.standby = await standbyFor(store, deps.seed(), surgery, clock.now());
     if (deps.escalation && deps.alerts) {
       detail.alerts = await Promise.all((await deps.alerts.listAlerts({ surgeryId: surgery.id })).map((a) => deps.escalation!.view(a)));
     }
@@ -138,6 +141,27 @@ export function createApp(deps: AppDeps): Hono<Env> {
     can(c, "read");
     const surgery = await requireSurgery(store, c.req.param("id"));
     return c.json(await detailFor(surgery));
+  });
+
+  app.get("/surgeries/:id/standby", async (c) => {
+    can(c, "read");
+    const surgery = await requireSurgery(store, c.req.param("id"));
+    return c.json(await standbyFor(store, deps.seed(), surgery, clock.now()));
+  });
+
+  app.post("/surgeries/:id/standby", async (c) => {
+    const actor = can(c, "task_write");
+    const surgery = await requireSurgery(store, c.req.param("id"));
+    const body = await readJsonObject(c);
+    const candidateId = requireString(body, "candidateId");
+    const action = requireOneOf(body, "action", ["offer", "accept", "decline"] as const);
+    const who = actor ?? optionalString(body, "actor")?.trim() ?? "staff";
+    try {
+      return c.json(await applyStandbyAction(store, deps.seed(), surgery, clock.now(), candidateId, action, who));
+    } catch (err) {
+      if (err instanceof StandbyError) throw err.message.startsWith("No standby") ? notFound("standby candidate", candidateId) : invalidTransition(err.message);
+      throw err;
+    }
   });
 
   app.get("/surgeries/:id/brief", async (c) => {

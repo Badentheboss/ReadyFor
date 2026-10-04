@@ -176,5 +176,47 @@
         }
       ]
     }
+  ],
+  "standby": [
+    {
+      "id": "sb_eleanor",
+      "name": "Eleanor Park",
+      "age": 66,
+      "procedureCode": "TKA",
+      "surgeon": "Dr. Avery Demo",
+      "noticeHours": 24,
+      "waitingSinceDays": 41,
+      "note": "Pre-op labs and anesthesia consult done in September; lives 15 minutes away."
+    },
+    {
+      "id": "sb_marcus",
+      "name": "Marcus Bell",
+      "age": 71,
+      "procedureCode": "TKA",
+      "surgeon": "Dr. Avery Demo",
+      "noticeHours": 48,
+      "waitingSinceDays": 63,
+      "note": "Cleared by cardiology last month; son can drive on short notice."
+    },
+    {
+      "id": "sb_ruth",
+      "name": "Ruth Okafor",
+      "age": 59,
+      "procedureCode": "TKA",
+      "surgeon": "Dr. Avery Demo",
+      "noticeHours": 72,
+      "waitingSinceDays": 28,
+      "note": "Ready; needs three days to arrange time off work."
+    },
+    {
+      "id": "sb_dev",
+      "name": "Dev Raman",
+      "age": 54,
+      "procedureCode": "THA",
+      "surgeon": "Dr. Lena Ortiz",
+      "noticeHours": 24,
+      "waitingSinceDays": 19,
+      "note": "Hip replacement waiting list; shown only for matching slots."
+    }
   ]
 }

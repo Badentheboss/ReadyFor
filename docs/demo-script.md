@@ -27,6 +27,8 @@ Synthetic data only. One presenter at the laptop, one phone playing the patient 
 
 **2:10 – Urgent escalation (35 s).** From the phone: "I've had chest pain since this morning." The urgent queue appears at the top: *Paged Priya Shah (nurse) · goes to Dr. Avery Demo at … if unanswered*. "The patient was told it went to the team as urgent, not promised a call." Reply **ACK** from the on-call phone (or click **I'll take it**). The card shows *Accepted by nurse: Priya Shah*, and the patient gets "Priya Shah from your care team has your message."
 
+**Optional, +20 s – Backup for the slot.** Still on Harriet, open **Backup for this slot**: "If her blockers don't clear, the OR time doesn't have to go to waste." Click **Offer slot** on Marcus Bell, then **Accepted**. "A backup patient is lined up; nothing about Harriet's surgery changes unless staff decide."
+
 **2:45 – Close (15 s).** "Everything is logged in Activity with who did what. Staff sign in with Neon Auth and only see what their role allows. A coordinator can do the same from ASI:One through our Fetch.ai agent. ReadyFor: catch it days ahead, not on the morning of surgery."
 
 ## If something goes wrong

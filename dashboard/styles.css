@@ -458,3 +458,16 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--focus); out
   .my-task time { grid-column: 1; }
   .my-task > button { grid-column: 2; grid-row: 3; }
 }
+
+/* Standby backups */
+.standby-box { margin-top: 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); padding: 0 12px; background: var(--surface); }
+.standby-box > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 10px 0; font-size: 14px; font-weight: 500; color: var(--accent); }
+.standby-box > summary::-webkit-details-marker { display: none; }
+.standby-box > summary small { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted); text-align: right; }
+.standby-box ul { list-style: none; margin: 0; padding: 0 0 10px; display: grid; gap: 10px; }
+.standby-box li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13.5px; }
+.standby-box li.muted { opacity: 0.6; }
+.standby-box li .badge { margin-left: 4px; height: 20px; }
+.standby-actions { display: flex; gap: 6px; }
+.standby-actions .primary-button, .standby-actions .ghost-button { min-height: 30px; font-size: 13px; padding: 0 10px; }
+@media (max-width: 640px) { .standby-box li { grid-template-columns: minmax(0, 1fr); } }

@@ -104,6 +104,7 @@ function mapDetail(detail) {
     outreach: detail.outreach ?? [],
     alerts: detail.alerts ?? [],
     schedule: detail.schedule ?? null,
+    standby: detail.standby ?? null,
   };
 }
 
@@ -175,6 +176,7 @@ function createCoreProvider(baseUrl, config = {}) {
     resetDemo: () => json('/demo/reset', 'POST'),
     retryMessage: (messageId) => json(`/messages/${encodeURIComponent(messageId)}/retry`, 'POST', {}),
     listAlerts: async () => (await json('/alerts')).alerts ?? [],
+    standbyAction: (surgeryId, candidateId, action) => json(`/surgeries/${encodeURIComponent(surgeryId)}/standby`, 'POST', { candidateId, action }),
     acknowledgeAlert: (alertId) => json(`/alerts/${encodeURIComponent(alertId)}/acknowledge`, 'POST', {}),
     resolveAlert: (alertId, note) => json(`/alerts/${encodeURIComponent(alertId)}/resolve`, 'POST', { note }),
     health: () => json('/health'),
@@ -221,7 +223,22 @@ function createMockProvider() {
     tasks: fixture.tasks.map((task, index) => ({ id: task.id ?? `${fixture.id}-task-${index}`, title: task.title, note: task.detail ?? task.title, owner: task.owner, status: task.state ?? 'open' })),
     schedule: mockSchedule(fixture),
     alerts: mockAlerts.filter((alert) => alert.surgeryId === fixture.id),
+    standby: mockStandby(fixture),
   });
+  // A synthetic waiting list for the offline demo; offers live only in this page's memory.
+  const mockStandbyState = new Map();
+  const MOCK_STANDBY = [
+    { id: 'sb_marcus', name: 'Marcus Bell', age: 71, noticeHours: 48, waitingSinceDays: 63, note: 'Cleared by cardiology last month; son can drive on short notice.' },
+    { id: 'sb_eleanor', name: 'Eleanor Park', age: 66, noticeHours: 24, waitingSinceDays: 41, note: 'Pre-op labs and anesthesia consult done in September.' },
+    { id: 'sb_ruth', name: 'Ruth Okafor', age: 59, noticeHours: 72, waitingSinceDays: 28, note: 'Ready; needs three days to arrange time off work.' },
+  ];
+  const mockStandby = (fixture) => {
+    const states = mockStandbyState.get(fixture.id) ?? {};
+    const candidates = MOCK_STANDBY.map((c) => ({ ...c, procedureCode: 'TKA', surgeon: 'Dr. Avery Demo', status: states[c.id] ?? 'suggested', updatedAt: null, by: null, canMakeIt: true }));
+    const confirmed = candidates.find((c) => c.status === 'accepted')?.id ?? null;
+    const eligible = fixture.readiness === 'at-risk' || confirmed !== null;
+    return { eligible, reason: eligible ? 'Open blockers inside a week: line up a backup in case this slot opens.' : 'No backup needed yet.', candidates, confirmed };
+  };
   // Synthetic stand-ins so the offline demo shows escalation and scheduling too.
   const minutesAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
   const mockAlerts = [];
@@ -302,6 +319,13 @@ function createMockProvider() {
       throw new Error('Task not found.');
     },
     async retryMessage() { throw new Error('Retrying a message is available only against the core API.'); },
+    async standbyAction(surgeryId, candidateId, action) {
+      const states = mockStandbyState.get(surgeryId) ?? {};
+      if (action !== 'offer' && states[candidateId] !== 'offered') throw new Error('Offer the slot first.');
+      if (Object.values(states).includes('accepted') && action !== 'decline') throw new Error('A backup has already accepted this slot.');
+      states[candidateId] = { offer: 'offered', accept: 'accepted', decline: 'declined' }[action];
+      mockStandbyState.set(surgeryId, states);
+    },
     async listAlerts() {
       await ensureMockAlert();
       return mockAlerts.filter((alert) => alert.status !== 'resolved').map((alert) => ({ ...alert }));

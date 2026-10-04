@@ -497,3 +497,11 @@ Every `RECHECK_INTERVAL_MINUTES` (default 60), the core rechecks each surgery in
 - Verified or pending lab evidence whose `evidence.data.collectedDate` falls outside its window for the surgery date (30 days for `preop_labs`, 90 for `a1c_recent`), for example after a reschedule, logs `evidence_stale` once and creates a `Re-review` task.
 - Reruns are safe: patient outreach is never repeated, tasks are deduplicated by title and requirement, and stale-evidence findings are logged once per collection date and surgery time.
 
+## 14. Standby backups
+
+Synthetic waiting-list patients live in `db/seed/demo.json` (`standby`). When a surgery has open blockers and is 7 days or less away, `SurgeryDetail.standby` suggests candidates with the same procedure and surgeon, those who can make it in time first (`noticeHours`), then longest waiting.
+
+- `GET /surgeries/:id/standby` returns `{ eligible, reason, candidates, confirmed }`; each candidate carries `status` (`suggested`, `offered`, `accepted`, `declined`) and `canMakeIt`.
+- `POST /surgeries/:id/standby` with `{ "candidateId", "action": "offer" | "accept" | "decline" }`. Accept and decline need an earlier offer; only one backup can accept per slot. Anything else is 409. Needs `task_write`.
+- State is kept as `standby_offered`, `standby_accepted`, `standby_declined` events. Nothing here cancels or moves the original surgery; that stays a staff decision outside ReadyFor. This is a demo: offers are recorded, not texted.
+

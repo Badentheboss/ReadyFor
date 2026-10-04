@@ -298,6 +298,31 @@ async function loadTasks() {
   }
 }
 
+// ---------- Standby (backup patients for an at-risk slot) ----------
+function standbyBox(d) {
+  const s = d.standby;
+  if (!s || !s.eligible || !s.candidates?.length) return '';
+  const confirmed = s.candidates.find((c) => c.id === s.confirmed);
+  const rows = s.candidates.map((c) => {
+    const status = { suggested: '', offered: '<span class="badge attention">Offered</span>', accepted: '<span class="badge ready">Accepted</span>', declined: '<span class="badge neutral">Declined</span>' }[c.status];
+    let actions = '';
+    if (!s.confirmed && (c.status === 'suggested' || c.status === 'declined') && c.canMakeIt) {
+      actions = `<button class="ghost-button" data-standby="offer" data-candidate="${esc(c.id)}">Offer slot</button>`;
+    } else if (c.status === 'offered') {
+      actions = `${s.confirmed ? '' : `<button class="primary-button" data-standby="accept" data-candidate="${esc(c.id)}">${icon('check')}Accepted</button>`}<button class="quiet-button" data-standby="decline" data-candidate="${esc(c.id)}">Declined</button>`;
+    }
+    return `<li class="${c.canMakeIt ? '' : 'muted'}">
+      <div><p><b>${esc(c.name)}</b> · ${c.age} · waiting ${c.waitingSinceDays} days ${status}</p>
+      <p class="task-detail">${esc(c.note)} · needs ${c.noticeHours} h notice${c.canMakeIt ? '' : ' (too little time left)'}</p></div>
+      <div class="standby-actions">${actions}</div>
+    </li>`;
+  }).join('');
+  return `<details class="standby-box" ${confirmed ? '' : 'open'}>
+    <summary>${icon('plus')}<span>${confirmed ? `Backup confirmed: ${esc(confirmed.name)}` : 'Backup for this slot'}</span><small>${esc(confirmed ? 'Takes the slot only if it opens; nothing is cancelled here.' : s.reason)}</small></summary>
+    <ul>${rows}</ul>
+  </details>`;
+}
+
 function renderBoard() {
   const tasks = state.view === 'tasks';
   $('#list-title').textContent = tasks ? 'My tasks' : 'Upcoming surgeries';
@@ -513,6 +538,7 @@ function renderCase() {
       ${(d.alerts ?? []).filter((a) => a.status !== 'resolved').map((a) => alertCard(a, { inCase: true })).join('')}
       <div class="readiness-banner ${level}"><p>${esc(d.readinessHeadline ?? d.headline ?? LEVEL_LABEL[level])}<small>${esc(sub)}</small></p></div>
       ${scheduleBox(d.schedule)}
+      ${standbyBox(d)}
     </header>
     <nav class="tabs" role="tablist" aria-label="Surgery sections">${tabs.map((t) => `<button class="tab" role="tab" aria-selected="${state.tab === t.key}" data-tab="${t.key}">${t.label}${t.count ? `<span class="count">${t.count}</span>` : ''}</button>`).join('')}</nav>
     <div class="tabpanel" role="tabpanel">${body}</div>`;
@@ -691,6 +717,11 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (target.hasAttribute('data-cancel-compose')) { state.composer = null; renderCase(); return; }
+  if (target.dataset.standby) {
+    const done = { offer: 'Slot offered. Record their answer when they reply.', accept: 'Backup confirmed. The original surgery is unchanged.', decline: 'Recorded as declined.' }[target.dataset.standby];
+    run(target, () => provider.standbyAction(state.selectedId, target.dataset.candidate, target.dataset.standby), done);
+    return;
+  }
   if (target.dataset.alertAck) {
     run(target, () => provider.acknowledgeAlert(target.dataset.alertAck), 'You have this alert. Escalation stopped, and the patient has been told who has it.');
     return;

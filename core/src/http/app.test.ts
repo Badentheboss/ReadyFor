@@ -165,7 +165,7 @@ describe("reads", () => {
     const r = await get("/surgeries/sur_harriet");
     expect(r.status).toBe(200);
     expect(Object.keys(r.json).sort()).toEqual(
-      ["alerts", "documents", "events", "messages", "outreach", "patient", "readiness", "requirements", "schedule", "surgery", "tasks"],
+      ["alerts", "documents", "events", "messages", "outreach", "patient", "readiness", "requirements", "schedule", "standby", "surgery", "tasks"],
     );
     expect(r.json.readiness.headline).toBe("At risk: 3 blockers, 5 days out");
     expect(r.json.requirements.map((q: any) => q.key)).toEqual(["anticoagulant_plan", "preop_labs", "transport"]);
@@ -825,5 +825,33 @@ describe("GET /tasks", () => {
     expect((await get("/tasks?owner=nurse")).json.tasks.map((t: any) => t.title)).toEqual(["Check labs"]);
     expect((await get("/tasks?status=all&owner=nurse")).json.tasks).toHaveLength(2);
     expect((await get("/tasks?owner=janitor")).status).toBe(400);
+  });
+});
+
+describe("standby backups", () => {
+  test("an at-risk slot suggests matching waiting-list patients, most able and longest waiting first", async () => {
+    await seedHarriet();
+    const r = await get("/surgeries/sur_harriet/standby");
+    expect(r.json.eligible).toBe(true);
+    expect(r.json.candidates.map((c: any) => c.id)).toEqual(["sb_marcus", "sb_eleanor", "sb_ruth"]);
+    expect(r.json.candidates.every((c: any) => c.status === "suggested" && c.canMakeIt)).toBe(true);
+    expect((await get("/surgeries/sur_morgan/standby")).json.eligible).toBe(false);
+  });
+
+  test("offer, accept and decline are recorded, and only one backup can accept", async () => {
+    await seedHarriet();
+    const act = (candidateId: string, action: string) => post("/surgeries/sur_harriet/standby", { candidateId, action, actor: "coordinator:Dana" });
+    expect((await act("sb_eleanor", "accept")).status).toBe(409);
+    expect((await act("sb_eleanor", "offer")).json.candidates.find((c: any) => c.id === "sb_eleanor").status).toBe("offered");
+    expect((await act("sb_marcus", "offer")).status).toBe(200);
+    expect((await act("sb_marcus", "decline")).json.candidates.find((c: any) => c.id === "sb_marcus").status).toBe("declined");
+    const accepted = await act("sb_eleanor", "accept");
+    expect(accepted.json.confirmed).toBe("sb_eleanor");
+    expect((await act("sb_marcus", "offer")).status).toBe(409);
+    expect((await act("sb_nobody", "offer")).status).toBe(404);
+    const detail = await get("/surgeries/sur_harriet");
+    expect(detail.json.standby.confirmed).toBe("sb_eleanor");
+    expect(detail.json.surgery.status).toBe("scheduled");
+    expect(detail.json.events[0].type).toBe("standby_accepted");
   });
 });
