@@ -162,6 +162,11 @@ export function createEscalation(deps: {
       if (!contact) return { handled: false, replies: [], surgeryId: null };
       const first = contact.name.split(" ")[0];
       const open = (await alerts.listAlerts({ activeOnly: true })).filter((a) => a.status === "open");
+      // One phone can be both a demo patient and an on-call contact. Then only an ACK while an
+      // alert is open is staff business; everything else is the patient talking.
+      if (await store.findPatientByPhone(phone)) {
+        if (!ACK.test(text) || open.length === 0) return { handled: false, replies: [], surgeryId: null };
+      }
       // Prefer the alert this person was paged about, then the oldest one still open.
       const target = open.find((a) => a.notifiedContactId === contact.id) ?? open[open.length - 1];
       if (!target) return { handled: true, replies: [`Thanks ${first}. There are no open urgent alerts right now.`], surgeryId: null };

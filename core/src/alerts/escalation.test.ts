@@ -143,6 +143,18 @@ describe("staff replies and the outbox", () => {
     expect(patient.json.replies).toEqual(["patient path"]);
   });
 
+  test("a phone that is both patient and on-call: only ACK during an open alert is treated as staff", async () => {
+    process.env.ONCALL_PRIMARY_PHONE = "+17345550100";
+    await alerts.syncSeedPhones(seed);
+    const hello = await call("POST", "/messages/inbound", { channel: "imessage", phone: "+17345550100", body: "I have a fever" });
+    expect(hello.json.replies).toEqual(["patient path"]);
+    const okBefore = await call("POST", "/messages/inbound", { channel: "imessage", phone: "+17345550100", body: "ok" });
+    expect(okBefore.json.replies).toEqual(["patient path"]);
+    await raise();
+    const ack = await call("POST", "/messages/inbound", { channel: "imessage", phone: "+17345550100", body: "ACK" });
+    expect(ack.json.replies[0]).toContain("You have Harriet Lindqvist's alert");
+  });
+
   test("staff alert texts appear in the imessage outbox and can be marked sent or failed", async () => {
     await raise();
     const outbox = await call("GET", "/outbox?channel=imessage");
