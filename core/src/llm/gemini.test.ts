@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationContext } from "../types.ts";
-import { createGeminiLlm } from "./gemini.ts";
+import { createGeminiLlm, setGeminiRetryDelays } from "./gemini.ts";
 import { createLlm } from "./index.ts";
 
 const context: ConversationContext = {
@@ -136,5 +136,28 @@ describe("createLlm", () => {
   test("uses gemini with a key", () => {
     expect(createLlm({ GEMINI_API_KEY: "k", GEMINI_MODEL: "gemini-x" }).name).toBe("gemini:gemini-x");
     expect(createLlm({ GEMINI_API_KEY: "k" }).name).toBe("gemini:gemini-3.8-flash");
+  });
+});
+
+describe("model fallback", () => {
+  test("an overloaded model is retried, then the next model answers", async () => {
+    setGeminiRetryDelays([0]);
+    const calls: string[] = [];
+    const llm = createGeminiLlm({
+      apiKey: "k",
+      model: "main",
+      fallbackModels: ["backup"],
+      fetch: (async (url: string) => {
+        const model = String(url).split("/models/")[1]!.split(":")[0]!;
+        calls.push(model);
+        if (model === "main") return new Response("busy", { status: 503 });
+        const text = JSON.stringify({ intent: "acknowledgement", confidence: 0.9, summary: "ok", requirementKey: null, faqTopic: null });
+        return Response.json({ candidates: [{ content: { parts: [{ text }] } }] });
+      }) as unknown as typeof fetch,
+    });
+    const c = await llm.classifyReply({ body: "got it", context: { patientFirstName: "H", procedureName: "TKA", surgeryDate: "2026-10-08", openRequirements: [], recent: [] } } as any);
+    expect(c.intent).toBe("acknowledgement");
+    expect(calls).toEqual(["main", "main", "backup"]);
+    setGeminiRetryDelays([800, 2000]);
   });
 });

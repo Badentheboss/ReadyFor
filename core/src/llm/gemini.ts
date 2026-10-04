@@ -92,11 +92,44 @@ const extractSchema = {
 
 type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
 
-export function createGeminiLlm(opts: { apiKey: string; model?: string; fetch?: typeof fetch }): Llm {
+/** Waits before each retry of a 429/503. Overridable so tests do not sleep. */
+export let RETRY_DELAYS_MS = [800, 2000];
+export function setGeminiRetryDelays(delays: number[]): void {
+  RETRY_DELAYS_MS = delays;
+}
+
+/** Tried in order after the main model when it is overloaded (429/503) or gone (404). */
+export const DEFAULT_FALLBACK_MODELS = ["gemini-3.5-flash", "gemini-3-flash-preview"];
+
+export function createGeminiLlm(opts: { apiKey: string; model?: string; fallbackModels?: string[]; fetch?: typeof fetch }): Llm {
   const model = opts.model ?? "gemini-3.8-flash";
+  const models = [model, ...(opts.fallbackModels ?? DEFAULT_FALLBACK_MODELS).filter((m) => m && m !== model)];
   const doFetch = opts.fetch ?? fetch;
 
+  // Gemini answers 429/503 under load; those are worth a short retry, anything else is not.
   async function generate(system: string, parts: Part[], schema: object): Promise<unknown> {
+    let lastError: unknown;
+    for (const candidate of models) {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await generateOnce(candidate, system, parts, schema);
+        } catch (err) {
+          lastError = err;
+          const status = (err as { status?: number }).status;
+          const transient = status === 429 || status === 503;
+          if (transient && attempt < RETRY_DELAYS_MS.length) {
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+            continue;
+          }
+          if (transient || status === 404) break; // try the next model
+          throw err;
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  async function generateOnce(model: string, system: string, parts: Part[], schema: object): Promise<unknown> {
     const res = await doFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": opts.apiKey },
@@ -109,7 +142,7 @@ export function createGeminiLlm(opts: { apiKey: string; model?: string; fetch?: 
     });
     if (!res.ok) {
       const detail = (await res.text().catch(() => "")).slice(0, 200);
-      throw new Error(`Gemini HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+      throw Object.assign(new Error(`Gemini HTTP ${res.status}${detail ? `: ${detail}` : ""}`), { status: res.status });
     }
     const json = (await res.json()) as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;

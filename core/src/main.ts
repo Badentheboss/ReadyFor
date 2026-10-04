@@ -35,7 +35,7 @@ const records: RecordSource = {
 const classifier = useFixtures ? createFixtureClassifier() : createRxClassClassifier();
 
 const { store, database } = await openStore(env);
-const llm = createLlm({ GEMINI_API_KEY: env.GEMINI_API_KEY, GEMINI_MODEL: env.GEMINI_MODEL });
+const llm = createLlm({ GEMINI_API_KEY: env.GEMINI_API_KEY, GEMINI_MODEL: env.GEMINI_MODEL, GEMINI_FALLBACK_MODELS: env.GEMINI_FALLBACK_MODELS });
 
 // The in-memory database starts empty every run. A real database is seeded only when it has no surgeries.
 if (database === "memory" || (await store.listSurgeries()).length === 0) {
