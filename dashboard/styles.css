@@ -386,3 +386,5 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--focus); out
 .outreach li.failed { color: var(--risk); font-weight: 500; }
 .outreach-failed { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; color: var(--risk); }
 .bubble-meta .failed { color: var(--risk); font-weight: 500; }
+.bubble-retry { align-self: flex-end; display: flex; align-items: center; gap: 10px; max-width: 86%; font-size: 12.5px; color: var(--risk); }
+.bubble-retry .ghost-button { min-height: 30px; font-size: 13px; }

@@ -310,7 +310,10 @@ function conversationPanel(d) {
         ? (m.deliveryStatus === 'queued' ? '<span class="queued">Queued</span>' : m.deliveryStatus === 'failed' ? '<span class="failed">Not delivered</span>' : 'Sent')
         : (m.classification?.intent ? `<span class="intent">${esc(m.classification.intent.replaceAll('_', ' '))}</span>` : 'Received');
       const files = m.attachments?.length ? `<br>${icon('clip')} ${plural(m.attachments.length, 'attachment')}` : '';
-      return `<div class="bubble ${dir}">${esc(m.body) || '<em>Attachment</em>'}${files}</div><div class="bubble-meta ${dir}">${esc(m.channel)} · ${clockTime(m.createdAt)} · ${status}</div>`;
+      const retry = m.deliveryStatus === 'failed'
+        ? `<div class="bubble-retry"><span>${esc(m.deliveryError ?? 'Not delivered')}</span><button class="ghost-button" data-retry="${esc(m.id)}">${icon('refresh')}Retry send</button></div>`
+        : '';
+      return `<div class="bubble ${dir}">${esc(m.body) || '<em>Attachment</em>'}${files}</div><div class="bubble-meta ${dir}">${esc(m.channel)} · ${clockTime(m.createdAt)} · ${status}</div>${retry}`;
     }).join('')
     : '<p class="task-detail">No messages yet. The record check queues the first one.</p>';
   return `<div class="thread">${thread}</div>
