@@ -433,3 +433,23 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--focus); out
 .schedule-box li.conflict svg { color: var(--risk); }
 .schedule-box .provenance { margin-top: 4px; }
 .schedule-feed { padding: 4px 0 10px; font: 400 11.5px var(--mono); color: var(--muted); }
+
+/* Cross-surgery follow-ups */
+.view-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.task-filters { display: flex; gap: 12px; margin-bottom: 12px; }
+.task-filters label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); flex: 1; }
+.my-task-list { display: grid; gap: 8px; }
+.my-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; align-items: center; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.my-task strong { overflow-wrap: anywhere; }
+.my-task small, .my-task time, .record-checked { color: var(--muted); font-size: 13px; }
+.my-task time { font-family: var(--mono); }
+.task-patient { padding-left: 0; color: var(--accent); }
+.record-checked { margin-top: 8px; }
+[hidden] { display: none !important; }
+@media (max-width: 640px) {
+  .list-head { flex-wrap: wrap; gap: 10px; }
+  .my-task { padding: 12px; }
+  .my-task > div { grid-column: 1 / -1; }
+  .my-task time { grid-column: 1; }
+  .my-task > button { grid-column: 2; grid-row: 3; }
+}

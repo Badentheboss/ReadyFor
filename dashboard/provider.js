@@ -75,6 +75,7 @@ function mapDetail(detail) {
   return {
     ...base,
     readinessHeadline: detail.readiness.headline,
+    lastCheckedAt: detail.surgery.lastCheckedAt,
     requirements: detail.requirements.map((requirement) => ({
       id: requirement.id,
       key: requirement.key,
@@ -138,6 +139,11 @@ function createCoreProvider(baseUrl, config = {}) {
   const getSurgery = async (id) => mapDetail(await json(`/surgeries/${encodeURIComponent(id)}`));
   return {
     mode: 'core',
+    async listTasks({ owner = '', status = 'open' } = {}) {
+      const query = new URLSearchParams({ status });
+      if (owner) query.set('owner', owner);
+      return (await json(`/tasks?${query}`)).tasks;
+    },
     listSurgeries,
     getSurgery,
     async refreshSurgery(surgeryId) {
@@ -211,7 +217,8 @@ function createMockProvider() {
       reason: blocker.reason, owner: blocker.owner, status: blocker.state,
       cleared: blocker.state === 'cleared', actionKind: blocker.kind === 'medication' ? 'template' : 'verify',
     })),
-    tasks: fixture.tasks.map((task) => ({ title: task.title, note: task.title, owner: task.owner, status: 'open' })),
+    lastCheckedAt: fixture.lastCheckedAt ?? null,
+    tasks: fixture.tasks.map((task, index) => ({ id: task.id ?? `${fixture.id}-task-${index}`, title: task.title, note: task.detail ?? task.title, owner: task.owner, status: task.state ?? 'open' })),
     schedule: mockSchedule(fixture),
     alerts: mockAlerts.filter((alert) => alert.surgeryId === fixture.id),
   });
@@ -244,6 +251,16 @@ function createMockProvider() {
   };
   return {
     mode: 'mock',
+    async listTasks({ owner = '', status = 'open' } = {}) {
+      const fixtures = await loadFixtures();
+      return fixtures.surgeries.flatMap((surgery) => surgery.tasks.map((task, index) => ({
+        ...task, id: task.id ?? `${surgery.id}-task-${index}`,
+        owner: task.owner.toLowerCase(), status: task.state ?? 'open',
+        surgeryId: surgery.id, patientName: surgery.patient.name,
+        procedureName: surgery.procedure, scheduledAt: `${surgery.surgeryDate}T12:00:00Z`,
+      }))).filter((task) => (!owner || task.owner === owner) && (status === 'all' || task.status === status))
+        .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+    },
     async listSurgeries() {
       const fixtures = await loadFixtures();
       await ensureMockAlert();
@@ -273,7 +290,17 @@ function createMockProvider() {
       if (!surgery) throw new Error('Surgery was not found in the mock fixture.');
       surgery.tasks.push({ title, owner, detail, state: 'open' });
     },
-    async completeTask() { throw new Error('Task completion is available only against the core API.'); },
+    async completeTask(id) {
+      for (const surgery of (await loadFixtures()).surgeries) {
+        const task = surgery.tasks.find((item, index) => (item.id ?? `${surgery.id}-task-${index}`) === id);
+        if (task) {
+          if ((task.state ?? 'open') !== 'open') throw new Error('This task is already done.');
+          task.state = 'done';
+          return;
+        }
+      }
+      throw new Error('Task not found.');
+    },
     async retryMessage() { throw new Error('Retrying a message is available only against the core API.'); },
     async listAlerts() {
       await ensureMockAlert();

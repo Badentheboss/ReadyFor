@@ -160,3 +160,18 @@ test('HTTP loopback cookie translation retains sessions without changing HTTPS o
     } else expect(cookie).toBe(providerCookie);
   }
 });
+
+test('GET tasks forwards query and bearer only for the exact path', async () => {
+  const seen: string[] = [];
+  const gateway = createGateway(config, async (input, options) => {
+    seen.push(`${options?.method} ${String(input)} ${new Headers(options?.headers).get('authorization')}`);
+    return Response.json({ tasks: [] });
+  }, fakeProvider);
+  expect((await gateway(request('/api/tasks?owner=nurse&status=all', { headers: { authorization: 'Bearer staff-token' } }))).status).toBe(200);
+  expect(seen).toEqual(['GET http://localhost:8787/tasks?owner=nurse&status=all Bearer staff-token']);
+  expect((await gateway(request('/api/tasks'))).status).toBe(401);
+  for (const path of ['/api/tasks/', '/api/tasks/tsk_1', '/api/tasks-extra']) {
+    expect((await gateway(request(path, { headers: { authorization: 'Bearer staff-token' } }))).status).toBe(404);
+  }
+  expect(seen.length).toBe(1);
+});
