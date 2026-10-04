@@ -254,6 +254,10 @@ Response:
 
 Request `{ "surgeryId": string, "title": string, "owner": Owner, "detail"?: string, "requirementId"?: string, "actor"?: string, "origin"?: "staff" | "agent" }`. `origin` defaults to `"staff"`. Response `{ "task": Task }`, status 201.
 
+### GET /tasks
+
+Tasks across every surgery, for a "My tasks" view. Query `owner` (`coordinator`, `nurse`, `surgeon`, `patient`) and `status` (`open` default, `done`, `all`). Sorted by surgery date, then creation. Each task adds `patientName`, `procedureName` and `scheduledAt`. Response `{ "tasks": [...] }`. Needs `read`.
+
 ### POST /tasks/:id/actions
 
 Request `{ "action": "complete" | "reassign" | "reopen", "actor": string, "owner"?: Owner }`. `reassign` requires `owner`. Response `{ "task": Task }`.

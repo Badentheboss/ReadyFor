@@ -811,3 +811,19 @@ describe("patient outreach", () => {
     expect(await outreach()).toEqual([]);
   });
 });
+
+describe("GET /tasks", () => {
+  test("lists open tasks across surgeries, filtered by owner, soonest surgery first", async () => {
+    await store.createTask({ surgeryId: "sur_jordan", title: "Call about ride", owner: "coordinator", origin: "staff" });
+    await store.createTask({ surgeryId: "sur_harriet", title: "Check labs", owner: "nurse", origin: "staff" });
+    const done = await store.createTask({ surgeryId: "sur_harriet", title: "Old task", owner: "nurse", origin: "staff" });
+    await store.updateTask(done.id, { status: "done", completedAt: NOW.toISOString(), completedBy: "nurse:Priya" });
+
+    const all = await get("/tasks");
+    expect(all.json.tasks.map((t: any) => t.title)).toEqual(["Check labs", "Call about ride"]);
+    expect(all.json.tasks[0]).toMatchObject({ patientName: "Harriet Lindqvist", surgeryId: "sur_harriet" });
+    expect((await get("/tasks?owner=nurse")).json.tasks.map((t: any) => t.title)).toEqual(["Check labs"]);
+    expect((await get("/tasks?status=all&owner=nurse")).json.tasks).toHaveLength(2);
+    expect((await get("/tasks?owner=janitor")).status).toBe(400);
+  });
+});

@@ -19,6 +19,7 @@ import { briefText, buildDetail, buildSummary, requireSurgery } from "./detail.t
 import { badRequest, HttpError, invalidTransition, notFound } from "./errors.ts";
 import {
   CHANNELS,
+  OWNERS,
   optionalString,
   readJsonObject,
   requireOneOf,
@@ -163,6 +164,26 @@ export function createApp(deps: AppDeps): Hono<Env> {
     if (requirement && isClinicalKind(requirement.kind)) can(c, "clinical_requirement_action");
     const body = await readJsonObject(c);
     return c.json(await applyRequirementAction(store, clock.now(), c.req.param("id"), body, actor));
+  });
+
+  // Open work across every surgery, for a "My tasks" view. Filter by owner role and status.
+  app.get("/tasks", async (c) => {
+    can(c, "read");
+    const owner = c.req.query("owner");
+    const status = c.req.query("status") ?? "open";
+    if (owner && !(OWNERS as readonly string[]).includes(owner)) throw badRequest(`"owner" must be one of: ${OWNERS.join(", ")}`);
+    if (!["open", "done", "all"].includes(status)) throw badRequest('"status" must be open, done or all');
+    const out = [];
+    for (const surgery of await store.listSurgeries()) {
+      const patient = await store.getPatient(surgery.patientId);
+      for (const task of await store.listTasks(surgery.id)) {
+        if (owner && task.owner !== owner) continue;
+        if (status !== "all" && task.status !== status) continue;
+        out.push({ ...task, patientName: patient?.displayName ?? "", procedureName: surgery.procedureName, scheduledAt: surgery.scheduledAt });
+      }
+    }
+    out.sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt) || a.createdAt.localeCompare(b.createdAt));
+    return c.json({ tasks: out });
   });
 
   app.post("/tasks", async (c) => {
