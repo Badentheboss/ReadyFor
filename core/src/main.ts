@@ -1,5 +1,6 @@
 /** ReadyFor core service. Wires the store, record check, conversation handler and HTTP app. */
 import seedJson from "../../db/seed/demo.json" with { type: "json" };
+import { createEscalation } from "./alerts/escalation.ts";
 import { authConfigFromEnv } from "./auth/auth.ts";
 import { createFixtureClassifier, createFixtureSource } from "./clinical/fixtures/fixtures.ts";
 import { createFinchNodeSource } from "./clinical/finchnode.ts";
@@ -34,7 +35,7 @@ const records: RecordSource = {
 };
 const classifier = useFixtures ? createFixtureClassifier() : createRxClassClassifier();
 
-const { store, database } = await openStore(env);
+const { store, alerts, database } = await openStore(env);
 const llm = createLlm({ GEMINI_API_KEY: env.GEMINI_API_KEY, GEMINI_MODEL: env.GEMINI_MODEL, GEMINI_FALLBACK_MODELS: env.GEMINI_FALLBACK_MODELS });
 
 // The in-memory database starts empty every run. A real database is seeded only when it has no surgeries.
@@ -50,17 +51,31 @@ const corsOrigins = env.CORS_ORIGINS?.trim()
     ? ["http://localhost:4173"]
     : undefined;
 
+// Phones in .env apply on every start, not only after a demo reset; the on-call ladder is synced the same way.
+await alerts.syncSeedPhones(seed);
+
+const escalateMinutes = Number(env.ESCALATION_MINUTES || 5);
+const escalation = createEscalation({ store, alerts, clock, clinic, escalateAfterMs: Math.max(0.25, escalateMinutes) * 60_000 });
+
 const deps: AppDeps = {
   store,
   clock,
   clinic,
   runRecordCheck: createRecordCheck({ store, records, classifier, clock, clinic }),
-  handleInbound: createInboundHandler({ store, llm, clock, clinic }),
+  handleInbound: createInboundHandler({ store, llm, clock, clinic, onUrgent: (input) => escalation.raise(input) }),
   seed: () => seed,
   info: { llm: llm.name, database, records: useFixtures ? "fixtures" : "live" },
   auth,
   corsOrigins,
+  escalation,
+  alerts,
 };
+
+// Escalation runs on a timer so an unanswered alert moves on even when nobody has the dashboard open.
+const tickSeconds = Number(env.ESCALATION_CHECK_SECONDS || 20);
+setInterval(() => {
+  escalation.tick().catch((err) => console.error("Escalation check failed", err));
+}, tickSeconds * 1000);
 
 const port = Number(env.CORE_PORT || 8787);
 Bun.serve({ port, fetch: createApp(deps).fetch, maxRequestBodySize: 32 * 1024 * 1024 });

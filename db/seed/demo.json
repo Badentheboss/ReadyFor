@@ -1,4 +1,27 @@
 {
+  "staff": [
+    {
+      "id": "stf_priya",
+      "name": "Priya Shah",
+      "role": "nurse",
+      "phone": "env:ONCALL_PRIMARY_PHONE",
+      "onCallRank": 1
+    },
+    {
+      "id": "stf_avery",
+      "name": "Dr. Avery Demo",
+      "role": "surgeon",
+      "phone": "env:ONCALL_BACKUP_PHONE",
+      "onCallRank": 2
+    },
+    {
+      "id": "stf_dana",
+      "name": "Dana Brooks",
+      "role": "coordinator",
+      "phone": "env:ONCALL_LAST_PHONE",
+      "onCallRank": 3
+    }
+  ],
   "patients": [
     {
       "id": "pat_harriet",
@@ -52,7 +75,10 @@
           "owner": "nurse",
           "reason": "Blood count and metabolic panel reviewed by the pre-op nurse.",
           "verifiedBy": "nurse:Priya",
-          "source": { "system": "staff", "detail": "Seeded demo data" }
+          "source": {
+            "system": "staff",
+            "detail": "Seeded demo data"
+          }
         },
         {
           "key": "diabetes_med_plan",
@@ -63,7 +89,10 @@
           "owner": "nurse",
           "reason": "Metformin instructions approved and sent to the patient.",
           "verifiedBy": "nurse:Priya",
-          "source": { "system": "staff", "detail": "Seeded demo data" }
+          "source": {
+            "system": "staff",
+            "detail": "Seeded demo data"
+          }
         },
         {
           "key": "transport",
@@ -74,7 +103,10 @@
           "owner": "coordinator",
           "reason": "Partner will drive; confirmed by phone.",
           "verifiedBy": "coordinator:Dana",
-          "source": { "system": "staff", "detail": "Seeded demo data" }
+          "source": {
+            "system": "staff",
+            "detail": "Seeded demo data"
+          }
         },
         {
           "key": "fasting_ack",
@@ -85,7 +117,10 @@
           "owner": "patient",
           "reason": "Patient repeated the fasting rules back correctly.",
           "verifiedBy": "coordinator:Dana",
-          "source": { "system": "staff", "detail": "Seeded demo data" }
+          "source": {
+            "system": "staff",
+            "detail": "Seeded demo data"
+          }
         }
       ]
     },
@@ -108,7 +143,10 @@
           "owner": "nurse",
           "reason": "Blood count and metabolic panel reviewed by the pre-op nurse.",
           "verifiedBy": "nurse:Priya",
-          "source": { "system": "staff", "detail": "Seeded demo data" }
+          "source": {
+            "system": "staff",
+            "detail": "Seeded demo data"
+          }
         },
         {
           "key": "transport",
@@ -118,7 +156,10 @@
           "blocking": true,
           "owner": "coordinator",
           "reason": "The patient has not confirmed who will drive them home.",
-          "source": { "system": "rule", "detail": "Required for every knee replacement" }
+          "source": {
+            "system": "rule",
+            "detail": "Required for every knee replacement"
+          }
         },
         {
           "key": "fasting_ack",
@@ -128,7 +169,10 @@
           "blocking": false,
           "owner": "patient",
           "reason": "Fasting instructions have not been sent yet.",
-          "source": { "system": "rule", "detail": "Sent two days before surgery" }
+          "source": {
+            "system": "rule",
+            "detail": "Sent two days before surgery"
+          }
         }
       ]
     }

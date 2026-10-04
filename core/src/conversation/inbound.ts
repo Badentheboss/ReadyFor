@@ -24,7 +24,14 @@ import * as replies from "./replies.ts";
 const ACTIVE = new Set(["open", "evidence_received"]);
 const MIN_CONFIDENCE = 0.5;
 
-export function createInboundHandler(deps: { store: Store; llm: Llm; clock: Clock; clinic: ClinicInfo }): HandleInbound {
+export function createInboundHandler(deps: {
+  store: Store;
+  llm: Llm;
+  clock: Clock;
+  clinic: ClinicInfo;
+  /** Raises an urgent alert for a reported symptom. Absent in tests that do not exercise escalation. */
+  onUrgent?: (input: { surgeryId: string; summary: string; messageId: string }) => Promise<unknown>;
+}): HandleInbound {
   const { store, llm, clock, clinic } = deps;
 
   async function resolveSurgery(input: InboundInput, now: Date): Promise<{ surgery: Surgery; patient: Patient }> {
@@ -301,6 +308,14 @@ export function createInboundHandler(deps: { store: Store; llm: Llm; clock: Cloc
             requirementId: review?.id ?? null,
             origin: "patient_message",
           });
+          if (deps.onUrgent) {
+            try {
+              await deps.onUrgent({ surgeryId: surgery.id, summary, messageId: inbound.id });
+            } catch (err) {
+              // The nurse task and blocking requirement above still exist; never lose the reply.
+              console.error("Could not raise the urgent alert", err);
+            }
+          }
           outgoing.push(replies.symptomCallback(first, clinic.phone));
           break;
         }

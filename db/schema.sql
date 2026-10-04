@@ -107,3 +107,45 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivery_error text;
 ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_delivery_status_check;
 ALTER TABLE messages ADD CONSTRAINT messages_delivery_status_check CHECK (delivery_status IN ('queued', 'sent', 'received', 'failed'));
 ALTER TABLE requirements ADD COLUMN IF NOT EXISTS outreach_message_id text REFERENCES messages (id) ON DELETE SET NULL;
+
+-- Urgent escalation: the on-call ladder, alerts, and every notification sent for them.
+CREATE TABLE IF NOT EXISTS staff_contacts (
+  id            text PRIMARY KEY,
+  name          text NOT NULL,
+  role          text NOT NULL CHECK (role IN ('coordinator', 'nurse', 'surgeon', 'admin')),
+  phone         text,
+  on_call_rank  integer NOT NULL,
+  active        boolean NOT NULL DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS alerts (
+  id                   text PRIMARY KEY,
+  surgery_id           text NOT NULL REFERENCES surgeries (id) ON DELETE CASCADE,
+  patient_id           text NOT NULL REFERENCES patients (id) ON DELETE CASCADE,
+  kind                 text NOT NULL CHECK (kind IN ('health_concern')),
+  summary              text NOT NULL,
+  message_id           text REFERENCES messages (id) ON DELETE SET NULL,
+  status               text NOT NULL CHECK (status IN ('open', 'acknowledged', 'resolved')),
+  level                integer NOT NULL DEFAULT 0,
+  notified_contact_id  text REFERENCES staff_contacts (id) ON DELETE SET NULL,
+  notified_at          timestamptz,
+  escalate_after       timestamptz,
+  exhausted            boolean NOT NULL DEFAULT false,
+  acknowledged_by      text,
+  acknowledged_at      timestamptz,
+  resolved_by          text,
+  resolved_at          timestamptz,
+  resolution           text,
+  created_at           timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS alerts_due_idx ON alerts (status, escalate_after);
+CREATE TABLE IF NOT EXISTS alert_notifications (
+  id               text PRIMARY KEY,
+  alert_id         text NOT NULL REFERENCES alerts (id) ON DELETE CASCADE,
+  contact_id       text NOT NULL REFERENCES staff_contacts (id) ON DELETE CASCADE,
+  level            integer NOT NULL,
+  body             text NOT NULL,
+  delivery_status  text NOT NULL CHECK (delivery_status IN ('queued', 'sent', 'failed')),
+  delivery_error   text,
+  created_at       timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS alert_notifications_queue_idx ON alert_notifications (delivery_status, created_at);

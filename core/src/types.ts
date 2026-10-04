@@ -6,6 +6,7 @@
  * with docs/contract.md.
  */
 
+import type { Escalation } from "./alerts/escalation.ts";
 import type { AuthConfig } from "./auth/auth.ts";
 
 // ---------------------------------------------------------------------------
@@ -275,6 +276,8 @@ export interface SurgeryDetail {
   events: EventRecord[];
   /** Patient outreach for approved plans, tracked apart from readiness. */
   outreach: Outreach[];
+  /** Urgent alerts for this surgery, newest first, including resolved ones. */
+  alerts: AlertView[];
 }
 
 /**
@@ -376,6 +379,8 @@ export interface NewEvent {
 
 /** Shape of db/seed/demo.json. */
 export interface SeedData {
+  /** The on-call ladder. Synced on every start. */
+  staff?: Array<{ id: Id; name: string; role: StaffRole; phone: string | null; onCallRank: number }>;
   patients: Array<{
     id: Id;
     finchnodeSubject: string | null;
@@ -608,4 +613,90 @@ export interface AppDeps {
   auth?: AuthConfig | null;
   /** Browser origins allowed by CORS. Absent: any origin (only sensible with auth off). */
   corsOrigins?: string[];
+  /** Urgent escalation. Absent: alert routes return empty lists and 404s. */
+  escalation?: Escalation;
+  alerts?: AlertStore;
+}
+
+// ---------------------------------------------------------------------------
+// Urgent escalation
+// ---------------------------------------------------------------------------
+
+export type StaffRole = "coordinator" | "nurse" | "surgeon" | "admin";
+
+/** A person on the on-call ladder. Lower onCallRank is notified first. */
+export interface StaffContact {
+  id: Id;
+  name: string;
+  role: StaffRole;
+  phone: string | null;
+  onCallRank: number;
+  active: boolean;
+}
+
+export type AlertStatus = "open" | "acknowledged" | "resolved";
+
+export interface Alert {
+  id: Id;
+  surgeryId: Id;
+  patientId: Id;
+  kind: "health_concern";
+  summary: string;
+  /** The patient message that raised it. */
+  messageId: Id | null;
+  status: AlertStatus;
+  /** Index into the on-call ladder of the person notified most recently. */
+  level: number;
+  notifiedContactId: Id | null;
+  notifiedAt: IsoDateTime | null;
+  /** When it moves to the next person if nobody has acknowledged it. Null once acknowledged or the ladder is exhausted. */
+  escalateAfter: IsoDateTime | null;
+  /** Everyone on the ladder was notified and nobody acknowledged. */
+  exhausted: boolean;
+  acknowledgedBy: string | null;
+  acknowledgedAt: IsoDateTime | null;
+  resolvedBy: string | null;
+  resolvedAt: IsoDateTime | null;
+  resolution: string | null;
+  createdAt: IsoDateTime;
+}
+
+export interface AlertNotification {
+  id: Id;
+  alertId: Id;
+  contactId: Id;
+  level: number;
+  body: string;
+  deliveryStatus: "queued" | "sent" | "failed";
+  deliveryError: string | null;
+  createdAt: IsoDateTime;
+}
+
+/** An alert as the API returns it, with names filled in. */
+export interface AlertView extends Alert {
+  patientName: string;
+  procedureName: string;
+  scheduledAt: IsoDateTime;
+  notified: { name: string; role: StaffRole } | null;
+  /** Who gets it next if nobody acknowledges; null at the end of the ladder. */
+  next: { name: string; role: StaffRole } | null;
+  notifications: Array<AlertNotification & { contactName: string; contactRole: StaffRole }>;
+}
+
+export interface AlertStore {
+  listContacts(): Promise<StaffContact[]>;
+  upsertContact(contact: StaffContact): Promise<void>;
+  findContactByPhone(phone: string): Promise<StaffContact | null>;
+  createAlert(input: Pick<Alert, "surgeryId" | "patientId" | "kind" | "summary" | "messageId">): Promise<Alert>;
+  getAlert(id: Id): Promise<Alert | null>;
+  listAlerts(filter?: { surgeryId?: Id; activeOnly?: boolean }): Promise<Alert[]>;
+  updateAlert(id: Id, patch: Partial<Omit<Alert, "id" | "createdAt">>): Promise<Alert>;
+  dueAlerts(now: Date): Promise<Alert[]>;
+  createNotification(input: Omit<AlertNotification, "id" | "createdAt">): Promise<AlertNotification>;
+  getNotification(id: Id): Promise<AlertNotification | null>;
+  listNotifications(alertId: Id): Promise<AlertNotification[]>;
+  queuedNotifications(): Promise<Array<AlertNotification & { phone: string | null }>>;
+  updateNotification(id: Id, patch: Pick<AlertNotification, "deliveryStatus" | "deliveryError">): Promise<AlertNotification>;
+  /** Re-applies "env:NAME" phones from the seed, so changing .env takes effect without a demo reset. */
+  syncSeedPhones(seed: SeedData): Promise<void>;
 }

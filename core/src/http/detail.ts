@@ -46,6 +46,7 @@ export async function buildDetail(store: Store, surgery: Surgery, now: Date): Pr
     documents,
     events,
     outreach: buildOutreach(requirements, messages),
+    alerts: [],
   };
 }
 

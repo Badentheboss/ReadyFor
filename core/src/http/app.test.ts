@@ -165,7 +165,7 @@ describe("reads", () => {
     const r = await get("/surgeries/sur_harriet");
     expect(r.status).toBe(200);
     expect(Object.keys(r.json).sort()).toEqual(
-      ["documents", "events", "messages", "outreach", "patient", "readiness", "requirements", "surgery", "tasks"],
+      ["alerts", "documents", "events", "messages", "outreach", "patient", "readiness", "requirements", "surgery", "tasks"],
     );
     expect(r.json.readiness.headline).toBe("At risk: 3 blockers, 5 days out");
     expect(r.json.requirements.map((q: any) => q.key)).toEqual(["anticoagulant_plan", "preop_labs", "transport"]);

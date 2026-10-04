@@ -12,23 +12,24 @@ export function askForReportPhoto(first: string): string {
 }
 
 export function rideHelp(first: string): string {
-  return `Thanks for telling me, ${first}. I've asked our coordinator to call you and help arrange a ride home.`;
+  return `Thanks for telling me, ${first}. I've asked our coordinator to help arrange a ride home, and they'll be in touch.`;
 }
 
 export function rideNoted(first: string): string {
   return `Thanks, ${first}. I've noted who will be taking you home. The care team will confirm it with you.`;
 }
 
+// Promise only what has happened: the concern is flagged now; the patient is told who has it once someone acknowledges.
 export function symptomCallback(first: string, clinicPhone: string): string {
-  return `Thank you for letting us know, ${first}. A nurse will call you about this. If you feel very unwell, please call ${clinicPhone}, or call 911 in an emergency.`;
+  return `Thank you for letting us know, ${first}. I've sent this to your care team as urgent, and I'll text you as soon as someone has picked it up. If you feel very unwell, please call ${clinicPhone}, or call 911 in an emergency.`;
 }
 
 export function medicationQuestion(first: string): string {
-  return `Thanks for asking, ${first}. I can't advise on medicines. I've passed your question to a nurse, who will get back to you.`;
+  return `Thanks for asking, ${first}. I can't advise on medicines, so I've passed your question to a nurse on your care team.`;
 }
 
 export function questionPassedOn(first: string): string {
-  return `Thanks, ${first}. I've passed your question to the care team, and someone will get back to you.`;
+  return `Thanks, ${first}. I've passed your question to your care team.`;
 }
 
 export function faqReply(topic: FaqTopic, clinicPhone: string): string | null {
@@ -51,7 +52,7 @@ export function greetingReply(first: string, openKeys: string[]): string {
 }
 
 export function rescheduleCallback(first: string): string {
-  return `Thanks, ${first}. I've asked our coordinator to call you about your surgery date.`;
+  return `Thanks, ${first}. I've passed your request about the surgery date to our coordinator.`;
 }
 
 export function passedToTeam(first: string): string {
