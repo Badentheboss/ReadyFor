@@ -855,3 +855,31 @@ describe("standby backups", () => {
     expect(detail.json.events[0].type).toBe("standby_accepted");
   });
 });
+
+describe("schedule actions", () => {
+  test("a schedule conflict can be assigned for fixing once", async () => {
+    const before = await get("/surgeries/sur_jordan");
+    expect(before.json.schedule.level).toBe("conflict");
+    const r = await post("/surgeries/sur_jordan/schedule/or_case", { action: "task", actor: "coordinator:Dana" });
+    expect(r.status).toBe(200);
+    await post("/surgeries/sur_jordan/schedule/or_case", { action: "task", actor: "coordinator:Dana" });
+    const tasks = (await store.listTasks("sur_jordan")).filter((t) => t.title === "Fix schedule: Operating room booking");
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.detail).toContain("Appointment/jordan-or-case");
+    expect(r.json.schedule.level).toBe("conflict");
+  });
+
+  test("marking a finding checked needs a note, clears it from the level, and is logged", async () => {
+    expect((await post("/surgeries/sur_jordan/schedule/or_case", { action: "check" })).status).toBe(400);
+    const r = await post("/surgeries/sur_jordan/schedule/or_case", { action: "check", note: "OR scheduling confirmed the 12:30 start.", actor: "coordinator:Dana" });
+    expect(r.status).toBe(200);
+    const item = r.json.schedule.items.find((i: any) => i.key === "or_case");
+    expect(item.checked).toMatchObject({ by: "coordinator:Dana", note: "OR scheduling confirmed the 12:30 start." });
+    expect(r.json.schedule.level).toBe("on_track");
+    expect(r.json.schedule.headline).toBe("Schedule on track (1 checked by staff)");
+    expect((await get("/surgeries")).json.surgeries.find((s: any) => s.surgery.id === "sur_jordan").schedule.level).toBe("on_track");
+    expect((await post("/surgeries/sur_jordan/schedule/or_case", { action: "check", note: "again" })).status).toBe(409);
+    expect((await post("/surgeries/sur_jordan/schedule/preop_visit", { action: "check", note: "x" })).status).toBe(409);
+    expect((await post("/surgeries/sur_jordan/schedule/nope", { action: "task" })).status).toBe(404);
+  });
+});

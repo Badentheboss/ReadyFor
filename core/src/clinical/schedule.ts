@@ -26,6 +26,19 @@ export interface ScheduleItem {
   status: "ok" | "attention" | "conflict";
   detail: string;
   source: { system: "fhir"; resource: string | null; lastUpdated: string | null };
+  /** Identifies this exact finding; a staff check only applies while it is unchanged. */
+  fingerprint?: string;
+  /** Set when staff marked this finding as dealt with. It then no longer counts toward the level. */
+  checked?: { by: string; at: string; note: string } | null;
+}
+
+/** A staff "checked" mark for one finding, read from schedule_checked events. */
+export interface ScheduleCheck {
+  key: ScheduleItemKey;
+  fingerprint: string;
+  by: string;
+  at: string;
+  note: string;
 }
 
 export interface ScheduleStatus {
@@ -136,17 +149,38 @@ export function evaluateSchedule(surgery: Surgery, patient: Patient, appointment
     });
   }
 
-  const conflicts = items.filter((i) => i.status === "conflict").length;
-  const attention = items.filter((i) => i.status === "attention").length;
-  const level = conflicts ? "conflict" : attention ? "needs_attention" : "on_track";
-  const headline = conflicts
-    ? `Schedule conflict: ${items.find((i) => i.status === "conflict")!.title.toLowerCase()}`
-    : attention
-      ? `Schedule: ${attention} item${attention === 1 ? "" : "s"} to confirm`
-      : "Schedule on track";
-  return { level, headline, checkedAt, feed: FEED, items };
+  for (const item of items) item.fingerprint = [item.key, item.source.resource ?? "none", item.status, item.detail].join("|");
+  return summarize({ level: "on_track", headline: "", checkedAt, feed: FEED, items });
 }
 
-export function scheduleFor(surgery: Surgery, patient: Patient, now: Date): ScheduleStatus {
-  return evaluateSchedule(surgery, patient, syntheticAppointments(surgery, now), now);
+/** Recomputes level and headline, leaving out findings staff have checked. */
+function summarize(status: ScheduleStatus): ScheduleStatus {
+  const live = status.items.filter((i) => !i.checked);
+  const conflicts = live.filter((i) => i.status === "conflict").length;
+  const attention = live.filter((i) => i.status === "attention").length;
+  const checked = status.items.filter((i) => i.checked && i.status !== "ok").length;
+  const level = conflicts ? "conflict" : attention ? "needs_attention" : status.items.length ? "on_track" : "unknown";
+  const headline = conflicts
+    ? `Schedule conflict: ${live.find((i) => i.status === "conflict")!.title.toLowerCase()}`
+    : attention
+      ? `Schedule: ${attention} item${attention === 1 ? "" : "s"} to confirm`
+      : status.items.length
+        ? checked ? `Schedule on track (${checked} checked by staff)` : "Schedule on track"
+        : "No scheduling data";
+  return { ...status, level, headline };
+}
+
+/** Applies staff checks whose fingerprint still matches the current finding. */
+export function applyScheduleChecks(status: ScheduleStatus, checks: ScheduleCheck[]): ScheduleStatus {
+  if (!checks.length) return status;
+  const items = status.items.map((item) => {
+    if (item.status === "ok") return item;
+    const check = checks.find((c) => c.key === item.key && c.fingerprint === item.fingerprint);
+    return check ? { ...item, checked: { by: check.by, at: check.at, note: check.note } } : item;
+  });
+  return summarize({ ...status, items });
+}
+
+export function scheduleFor(surgery: Surgery, patient: Patient, now: Date, checks: ScheduleCheck[] = []): ScheduleStatus {
+  return applyScheduleChecks(evaluateSchedule(surgery, patient, syntheticAppointments(surgery, now), now), checks);
 }

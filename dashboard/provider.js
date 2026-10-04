@@ -176,6 +176,7 @@ function createCoreProvider(baseUrl, config = {}) {
     resetDemo: () => json('/demo/reset', 'POST'),
     retryMessage: (messageId) => json(`/messages/${encodeURIComponent(messageId)}/retry`, 'POST', {}),
     listAlerts: async () => (await json('/alerts')).alerts ?? [],
+    scheduleAction: (surgeryId, key, action, note) => json(`/surgeries/${encodeURIComponent(surgeryId)}/schedule/${encodeURIComponent(key)}`, 'POST', { action, ...(note ? { note } : {}) }),
     standbyAction: (surgeryId, candidateId, action) => json(`/surgeries/${encodeURIComponent(surgeryId)}/standby`, 'POST', { candidateId, action }),
     acknowledgeAlert: (alertId) => json(`/alerts/${encodeURIComponent(alertId)}/acknowledge`, 'POST', {}),
     resolveAlert: (alertId, note) => json(`/alerts/${encodeURIComponent(alertId)}/resolve`, 'POST', { note }),
@@ -256,7 +257,17 @@ function createMockProvider() {
       notifications: [{ contactName: 'Priya Shah', contactRole: 'nurse', deliveryStatus: 'sent', deliveryError: null }],
     });
   })());
+  const mockScheduleChecks = new Map();
   const mockSchedule = (fixture) => {
+    const base = mockScheduleBase(fixture);
+    const checks = mockScheduleChecks.get(fixture.id) ?? {};
+    const items = base.items.map((i) => (checks[i.key] && i.status !== 'ok' ? { ...i, checked: checks[i.key] } : i));
+    const live = items.filter((i) => !i.checked && i.status !== 'ok');
+    const level = live.some((i) => i.status === 'conflict') ? 'conflict' : live.length ? 'needs_attention' : 'on_track';
+    const headline = level === base.level ? base.headline : level === 'on_track' ? 'Schedule on track (checked by staff)' : `Schedule: ${live.length} item to confirm`;
+    return { ...base, items, level, headline };
+  };
+  const mockScheduleBase = (fixture) => {
     const level = fixture.readiness === 'at-risk' ? 'needs_attention' : fixture.readiness === 'ready' ? 'on_track' : 'conflict';
     const item = (key, title, status, detail) => ({ key, title, status, detail, source: { system: 'fhir', resource: `Appointment/${fixture.id}-${key}`, lastUpdated: minutesAgo(180) } });
     const items = [
@@ -319,6 +330,14 @@ function createMockProvider() {
       throw new Error('Task not found.');
     },
     async retryMessage() { throw new Error('Retrying a message is available only against the core API.'); },
+    async scheduleAction(surgeryId, key, action, note) {
+      const surgery = (await loadFixtures()).surgeries.find((item) => item.id === surgeryId);
+      if (!surgery) throw new Error('Surgery not found.');
+      if (action === 'task') { surgery.tasks.push({ title: `Fix schedule: ${key.replace('_', ' ')}`, owner: 'Coordinator', state: 'open' }); return; }
+      const checks = mockScheduleChecks.get(surgeryId) ?? {};
+      checks[key] = { by: 'admin:Demo staff', at: new Date().toISOString(), note };
+      mockScheduleChecks.set(surgeryId, checks);
+    },
     async standbyAction(surgeryId, candidateId, action) {
       const states = mockStandbyState.get(surgeryId) ?? {};
       if (action !== 'offer' && states[candidateId] !== 'offered') throw new Error('Offer the slot first.');

@@ -1,5 +1,5 @@
 import type { Message, Outreach, Readiness, Requirement, Store, Surgery, SurgeryDetail, SurgerySummary, Task, Patient } from "../types.ts";
-import { scheduleFor } from "../clinical/schedule.ts";
+import { scheduleFor, type ScheduleCheck } from "../clinical/schedule.ts";
 import { blockerSummaries, computeReadiness } from "../readiness.ts";
 import { notFound } from "./errors.ts";
 
@@ -25,7 +25,7 @@ export async function buildSummary(store: Store, surgery: Surgery, now: Date): P
     patient,
     readiness: computeReadiness(surgery, requirements, now),
     blockers: blockerSummaries(requirements),
-    schedule: scheduleSummary(surgery, patient, now),
+    schedule: scheduleSummary(surgery, patient, now, await scheduleChecks(store, surgery.id)),
   };
 }
 
@@ -49,13 +49,26 @@ export async function buildDetail(store: Store, surgery: Surgery, now: Date): Pr
     events,
     outreach: buildOutreach(requirements, messages),
     alerts: [],
-    schedule: scheduleFor(surgery, patient, now),
+    schedule: scheduleFor(surgery, patient, now, await scheduleChecks(store, surgery.id)),
   };
 }
 
-function scheduleSummary(surgery: Surgery, patient: Patient, now: Date) {
-  const { level, headline } = scheduleFor(surgery, patient, now);
+function scheduleSummary(surgery: Surgery, patient: Patient, now: Date, checks: ScheduleCheck[]) {
+  const { level, headline } = scheduleFor(surgery, patient, now, checks);
   return { level, headline };
+}
+
+/** Staff "checked" marks on schedule findings, newest first. */
+export async function scheduleChecks(store: Store, surgeryId: string): Promise<ScheduleCheck[]> {
+  return (await store.listEvents(surgeryId, 1000))
+    .filter((e) => e.type === "schedule_checked" && typeof e.data?.fingerprint === "string")
+    .map((e) => ({
+      key: e.data!.key as ScheduleCheck["key"],
+      fingerprint: String(e.data!.fingerprint),
+      by: e.actor,
+      at: e.createdAt,
+      note: String(e.data!.note ?? ""),
+    }));
 }
 
 /** One entry per requirement whose approved template produced a patient message. */

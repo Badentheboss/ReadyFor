@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Patient, Surgery } from "../types.ts";
-import { evaluateSchedule, scheduleFor, syntheticAppointments, type FhirAppointment } from "./schedule.ts";
+import { applyScheduleChecks, evaluateSchedule, scheduleFor, syntheticAppointments, type FhirAppointment } from "./schedule.ts";
 
 const NOW = new Date("2026-10-03T20:00:00.000Z");
 const surgery = (id: string): Surgery => ({
@@ -42,4 +42,16 @@ describe("schedule indicators", () => {
     expect(cancelled.items[0]).toMatchObject({ key: "or_case", status: "conflict" });
     expect(scheduleFor(surgery("sur_unknown"), patient(null), NOW)).toMatchObject({ level: "unknown", items: [] });
   });
+});
+
+test("a staff check stops applying once the booking changes", () => {
+  const original = scheduleFor(surgery("sur_jordan"), patient("1986-01-01"), NOW);
+  const or = original.items.find((i) => i.key === "or_case")!;
+  const check = { key: "or_case" as const, fingerprint: or.fingerprint!, by: "coordinator:Dana", at: NOW.toISOString(), note: "Confirmed." };
+  expect(applyScheduleChecks(original, [check]).level).toBe("on_track");
+  const moved = evaluateSchedule(surgery("sur_jordan"), patient("1986-01-01"), [
+    appt("or_case", "booked", "2026-10-08T16:30:00.000Z"),
+    appt("preop_visit", "booked", "2026-10-01T10:00:00.000Z"),
+  ], NOW);
+  expect(applyScheduleChecks(moved, [check]).level).toBe("conflict");
 });

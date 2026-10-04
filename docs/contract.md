@@ -482,6 +482,13 @@ Events: `alert_raised`, `alert_notified`, `alert_escalated`, `alert_notification
 
 Each item cites its source: `{ "system": "fhir", "resource": "Appointment/harriet-or-case", "lastUpdated": "..." }`. Levels: `on_track`, `needs_attention`, `conflict`, `unknown` (no feed data).
 
+ReadyFor never edits the scheduling feed. For any finding that isn't `ok`, staff can:
+
+- `POST /surgeries/:id/schedule/:key` with `{ "action": "task" }`: creates one `Fix schedule: <title>` task for the coordinator.
+- `POST /surgeries/:id/schedule/:key` with `{ "action": "check", "note": "..." }`: records a `schedule_checked` event. The item gets `checked: { by, at, note }` and no longer counts toward the level. The check is tied to the item's `fingerprint` (appointment, status and finding), so if the booking changes the item is flagged again.
+
+Both return the updated `SurgeryDetail` and need `task_write`. A key that isn't in the schedule is 404; an `ok` or already-checked item is 409; a check without a note is 400.
+
 ## 12. Operations
 
 - `GET /health` (public): modes in use.

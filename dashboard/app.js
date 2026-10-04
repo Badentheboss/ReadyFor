@@ -258,12 +258,23 @@ function scheduleChip(schedule) {
 function scheduleBox(schedule) {
   if (!schedule) return '';
   const cls = SCHEDULE_CLASS[schedule.level] ?? 'neutral';
-  const items = (schedule.items ?? []).map((i) => `<li class="${i.status}">
-      ${icon(i.status === 'ok' ? 'check' : 'alert')}
+  const items = (schedule.items ?? []).map((i) => {
+    const problem = i.status !== 'ok';
+    let after = '';
+    if (problem && i.checked) {
+      after = `<p class="sched-checked">${icon('check')}Checked by ${esc(i.checked.by)} · ${relativeTime(i.checked.at)} · ${esc(i.checked.note)}</p>`;
+    } else if (problem && state.scheduleNote === i.key) {
+      after = `<form class="note-composer" data-schedule-check="${esc(i.key)}"><label for="sched-${esc(i.key)}">What did you check or fix?</label><textarea id="sched-${esc(i.key)}" name="note" rows="2" required maxlength="400" placeholder="e.g. Called OR scheduling; the booking now matches 12:30."></textarea><div class="row-actions"><button type="button" class="quiet-button" data-schedule-cancel>Cancel</button><button type="submit" class="primary-button">Mark checked</button></div></form>`;
+    } else if (problem) {
+      after = `<div class="sched-actions"><button class="ghost-button" data-schedule-task="${esc(i.key)}">${icon('plus')}Assign fix</button><button class="quiet-button" data-schedule-note="${esc(i.key)}">Mark checked…</button></div>`;
+    }
+    return `<li class="${i.checked ? 'ok checked' : i.status}">
+      ${icon(i.status === 'ok' || i.checked ? 'check' : 'alert')}
       <div><p><b>${esc(i.title)}</b> · ${esc(i.detail)}</p>
-      <p class="provenance"><span class="system">FHIR</span><span>${i.source.resource ? esc(i.source.resource) : 'No appointment found'}${i.source.lastUpdated ? ` · updated ${relativeTime(i.source.lastUpdated)}` : ''}</span></p></div>
-    </li>`).join('');
-  return `<details class="schedule-box ${cls}" ${schedule.level === 'conflict' ? 'open' : ''}>
+      <p class="provenance"><span class="system">FHIR</span><span>${i.source.resource ? esc(i.source.resource) : 'No appointment found'}${i.source.lastUpdated ? ` · updated ${relativeTime(i.source.lastUpdated)}` : ''}</span></p>${after}</div>
+    </li>`;
+  }).join('');
+  return `<details class="schedule-box ${cls}" ${schedule.level === 'conflict' || state.scheduleNote ? 'open' : ''}>
     <summary>${icon('calendar')}<span>${esc(schedule.headline)}</span><small>Scheduling · separate from readiness</small></summary>
     ${items ? `<ul>${items}</ul>` : '<p class="task-detail">No scheduling data for this surgery.</p>'}
     <p class="schedule-feed">${esc(schedule.feed ?? '')} · checked ${relativeTime(schedule.checkedAt)}</p>
@@ -547,14 +558,14 @@ function renderCase() {
 
 // Polling must not wipe what someone is typing or a note they are writing.
 function caseIsBusy() {
-  if (state.composer || state.resolving) return true;
+  if (state.composer || state.resolving || state.scheduleNote) return true;
   const active = document.activeElement;
   if (active && caseEl.contains(active) && ['TEXTAREA', 'INPUT', 'SELECT'].includes(active.tagName)) return true;
   return [...caseEl.querySelectorAll('textarea, input[type="text"], input[type="file"]')].some((el) => el.value);
 }
 
 // ---------- Data ----------
-async function loadAll({ force = false } = {}) {
+async function loadAll({ force = false, afterAction = false } = {}) {
   try {
     const [next, alerts] = await Promise.all([provider.listSurgeries(), provider.listAlerts?.().catch(() => state.alerts) ?? []]);
     if (force || JSON.stringify(alerts) !== JSON.stringify(state.alerts)) {
@@ -569,7 +580,7 @@ async function loadAll({ force = false } = {}) {
     if (changed || force) renderBoard();
     setMode(provider.mode === 'mock' ? 'mock' : 'live');
     if (state.view === 'tasks') await loadTasks();
-    if (state.selectedId) await loadDetail(state.selectedId, { force });
+    if (state.selectedId) await loadDetail(state.selectedId, { force, afterAction });
     else renderCase();
   } catch (error) {
     setMode('offline');
@@ -579,7 +590,7 @@ async function loadAll({ force = false } = {}) {
   }
 }
 
-async function loadDetail(id, { force = false } = {}) {
+async function loadDetail(id, { force = false, afterAction = false } = {}) {
   const ticket = ++detailRequest;
   const next = await provider.getSurgery(id);
   // A slower response for a previously selected surgery must not replace the current one.
@@ -587,7 +598,8 @@ async function loadDetail(id, { force = false } = {}) {
   const changed = JSON.stringify(next) !== JSON.stringify(state.detail);
   state.detail = next;
   detailNeedsRender ||= force || changed;
-  if (!caseIsBusy() && detailNeedsRender) { renderCase(); detailNeedsRender = false; }
+  // After the user's own action succeeds, its form is done with, so always redraw; polling still waits for typing.
+  if ((afterAction || !caseIsBusy()) && detailNeedsRender) { renderCase(); detailNeedsRender = false; }
   const checked = caseEl.querySelector('.record-checked');
   if (checked) checked.textContent = next.lastCheckedAt ? `Record checked ${relativeTime(next.lastCheckedAt)}` : 'Record not checked yet';
 }
@@ -597,6 +609,7 @@ async function select(id) {
   state.selectedId = id;
   state.detail = null;
   state.composer = null;
+  state.scheduleNote = null;
   state.tab = 'checklist';
   renderRunway();
   renderList();
@@ -636,7 +649,7 @@ async function run(button, work, message) {
   try {
     const result = await work();
     state.composer = null;
-    await loadAll({ force: true });
+    await loadAll({ force: true, afterAction: true });
     if (message) notify(typeof message === 'function' ? message(result) : message);
   } catch (error) {
     notify(error.message, true);
@@ -717,6 +730,17 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (target.hasAttribute('data-cancel-compose')) { state.composer = null; renderCase(); return; }
+  if (target.dataset.scheduleTask) {
+    run(target, () => provider.scheduleAction(state.selectedId, target.dataset.scheduleTask, 'task'), 'Fix assigned to the coordinator. It is in My tasks.');
+    return;
+  }
+  if (target.dataset.scheduleNote) {
+    state.scheduleNote = target.dataset.scheduleNote;
+    renderCase();
+    caseEl.querySelector(`[data-schedule-check="${CSS.escape(state.scheduleNote)}"] textarea`)?.focus();
+    return;
+  }
+  if (target.hasAttribute('data-schedule-cancel')) { state.scheduleNote = null; renderCase(); return; }
   if (target.dataset.standby) {
     const done = { offer: 'Slot offered. Record their answer when they reply.', accept: 'Backup confirmed. The original surgery is unchanged.', decline: 'Recorded as declined.' }[target.dataset.standby];
     run(target, () => provider.standbyAction(state.selectedId, target.dataset.candidate, target.dataset.standby), done);
@@ -771,6 +795,13 @@ document.addEventListener('submit', (event) => {
   event.preventDefault();
   const submit = form.querySelector('[type="submit"]');
 
+  if (form.dataset.scheduleCheck) {
+    const note = new FormData(form).get('note')?.toString().trim();
+    if (!note) return;
+    const key = form.dataset.scheduleCheck;
+    run(submit, async () => { await provider.scheduleAction(state.selectedId, key, 'check', note); state.scheduleNote = null; }, 'Marked checked. It will be flagged again if the booking changes.');
+    return;
+  }
   if (form.dataset.resolveFor) {
     const note = new FormData(form).get('note')?.toString().trim();
     if (!note) return;

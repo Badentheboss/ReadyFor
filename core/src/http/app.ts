@@ -143,6 +143,40 @@ export function createApp(deps: AppDeps): Hono<Env> {
     return c.json(await detailFor(surgery));
   });
 
+  // Schedule findings come from the hospital's scheduling feed, which ReadyFor does not edit.
+  // Staff either assign someone to fix the booking, or mark the finding as checked with a note.
+  app.post("/surgeries/:id/schedule/:key", async (c) => {
+    const actor = can(c, "task_write");
+    const surgery = await requireSurgery(store, c.req.param("id"));
+    const detail = await buildDetail(store, surgery, clock.now());
+    const item = detail.schedule.items.find((i) => i.key === c.req.param("key"));
+    if (!item) throw notFound("schedule item", c.req.param("key"));
+    if (item.status === "ok") throw invalidTransition(`${item.title} has no problem to act on`);
+    const body = await readJsonObject(c);
+    const action = requireOneOf(body, "action", ["task", "check"] as const);
+    const who = actor ?? optionalString(body, "actor")?.trim() ?? "staff";
+    if (action === "task") {
+      const title = `Fix schedule: ${item.title}`;
+      const open = (await store.listTasks(surgery.id)).filter((t) => t.status === "open");
+      if (!open.some((t) => t.title === title)) {
+        await store.createTask({ surgeryId: surgery.id, title, detail: `${item.detail} Source: ${item.source.resource ?? "no appointment"}.`, owner: "coordinator", origin: "staff" });
+        await store.addEvent({ surgeryId: surgery.id, type: "task_created", summary: `${who} assigned a fix for "${item.title}": ${item.detail}`, actor: who, data: { scheduleKey: item.key } });
+      }
+    } else {
+      if (item.checked) throw invalidTransition(`${item.title} is already marked checked`);
+      const note = optionalString(body, "note")?.trim();
+      if (!note) throw new HttpError(400, "note_required", "Say what was checked or fixed");
+      await store.addEvent({
+        surgeryId: surgery.id,
+        type: "schedule_checked",
+        summary: `${who} checked "${item.title}": ${note}`,
+        actor: who,
+        data: { key: item.key, fingerprint: item.fingerprint, note },
+      });
+    }
+    return c.json(await detailFor(surgery));
+  });
+
   app.get("/surgeries/:id/standby", async (c) => {
     can(c, "read");
     const surgery = await requireSurgery(store, c.req.param("id"));

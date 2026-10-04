@@ -471,3 +471,10 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--focus); out
 .standby-actions { display: flex; gap: 6px; }
 .standby-actions .primary-button, .standby-actions .ghost-button { min-height: 30px; font-size: 13px; padding: 0 10px; }
 @media (max-width: 640px) { .standby-box li { grid-template-columns: minmax(0, 1fr); } }
+
+/* Schedule actions */
+.sched-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sched-actions .ghost-button, .sched-actions .quiet-button { min-height: 30px; font-size: 13px; }
+.sched-checked { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 12.5px; color: var(--ready); }
+.sched-checked svg { width: 14px; height: 14px; }
+.schedule-box li.checked svg { color: var(--ready); }
