@@ -39,6 +39,17 @@ export function acknowledgementReply(first: string): string {
   return `You're welcome, ${first}. Message me any time.`;
 }
 
+/** Answers a greeting with the one thing the patient can still help with, most important first. */
+export function greetingReply(first: string, openKeys: string[]): string {
+  const asks: Array<[string, string]> = [
+    ["preop_labs", "If you've had blood work done recently, you can text me a photo of the report."],
+    ["transport", "Who will be driving you home after surgery?"],
+    ["fasting_ack", "Please reply to confirm you've read the eating and drinking instructions for the night before."],
+  ];
+  const next = asks.find(([key]) => openKeys.includes(key));
+  return next ? `Hi ${first}, thanks for getting in touch. ${next[1]}` : `Hi ${first}, thanks for getting in touch. Message me any time if you have a question.`;
+}
+
 export function rescheduleCallback(first: string): string {
   return `Thanks, ${first}. I've asked our coordinator to call you about your surgery date.`;
 }

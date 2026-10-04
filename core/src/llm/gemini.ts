@@ -93,7 +93,7 @@ const extractSchema = {
 type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
 
 export function createGeminiLlm(opts: { apiKey: string; model?: string; fetch?: typeof fetch }): Llm {
-  const model = opts.model ?? "gemini-2.5-flash";
+  const model = opts.model ?? "gemini-3.8-flash";
   const doFetch = opts.fetch ?? fetch;
 
   async function generate(system: string, parts: Part[], schema: object): Promise<unknown> {
@@ -133,7 +133,9 @@ export function createGeminiLlm(opts: { apiKey: string; model?: string; fetch?: 
           classifySchema,
         );
         return coerceClassification(raw, input.context);
-      } catch {
+      } catch (err) {
+        // Keep the conversation going, but make the failure visible to whoever runs the core.
+        console.warn(`Gemini classification failed, using keyword fallback: ${err instanceof Error ? err.message : String(err)}`);
         return classifyWithKeywords(input);
       }
     },

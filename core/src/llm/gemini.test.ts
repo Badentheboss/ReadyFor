@@ -51,8 +51,8 @@ describe("gemini classifyReply", () => {
     expect(call.body.generationConfig.responseSchema.properties.intent.enum).toContain("outside_result_claim");
   });
 
-  test("defaults the model to gemini-2.5-flash", () => {
-    expect(createGeminiLlm({ apiKey: "k" }).name).toBe("gemini:gemini-2.5-flash");
+  test("defaults the model to gemini-3.8-flash", () => {
+    expect(createGeminiLlm({ apiKey: "k" }).name).toBe("gemini:gemini-3.8-flash");
   });
 
   test("returns a good response", async () => {
@@ -135,6 +135,6 @@ describe("createLlm", () => {
   });
   test("uses gemini with a key", () => {
     expect(createLlm({ GEMINI_API_KEY: "k", GEMINI_MODEL: "gemini-x" }).name).toBe("gemini:gemini-x");
-    expect(createLlm({ GEMINI_API_KEY: "k" }).name).toBe("gemini:gemini-2.5-flash");
+    expect(createLlm({ GEMINI_API_KEY: "k" }).name).toBe("gemini:gemini-3.8-flash");
   });
 });

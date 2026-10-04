@@ -217,6 +217,21 @@ describe("intents", () => {
     expect(r.replies[0]).toContain("passed your message");
   });
 
+  test("a bare greeting gets the next useful ask instead of a staff task", async () => {
+    for (const hello of ["hi", "Hello!", "good morning"]) {
+      const r = await ctx.say(hello);
+      expect(r.replies[0]).toStartWith("Hi Harriet, thanks for getting in touch.");
+      expect(r.replies[0]).not.toContain("passed your message");
+      expectSaneReplies(r);
+    }
+    expect(await ctx.store.listTasks("sur_harriet")).toEqual([]);
+  });
+
+  test("a greeting with a real message is still passed to the team", async () => {
+    const r = await ctx.say("hi, the weather has been lovely");
+    expect(r.replies[0]).toContain("passed your message");
+  });
+
   test("low confidence is treated as other", async () => {
     const llm: Llm = {
       name: "stub",

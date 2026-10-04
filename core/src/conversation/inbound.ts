@@ -350,6 +350,11 @@ export function createInboundHandler(deps: { store: Store; llm: Llm; clock: Cloc
         }
 
         case "other": {
+          // A bare greeting is not something for staff to review: answer it with what is still needed.
+          if (isGreeting(text)) {
+            outgoing.push(replies.greetingReply(first, requirements.filter((r) => ACTIVE.has(r.status)).map((r) => r.key)));
+            break;
+          }
           await createTaskUnlessDuplicate({
             title: "Review patient message",
             owner: "coordinator",
@@ -420,4 +425,11 @@ function statementOf(summary: string): string {
 
 function clip(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+}
+
+const GREETING = /^(hi|hii+|hello|hey|heya|hiya|yo|good (morning|afternoon|evening)|morning|evening)( there)?[\s!.,]*$/i;
+
+/** "hi", "Hello!", "good morning" — nothing for the care team to act on. */
+export function isGreeting(text: string): boolean {
+  return GREETING.test(text.trim());
 }
